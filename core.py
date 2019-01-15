@@ -279,6 +279,8 @@ class PostalCodesWeb:
 string_to_int: Callable[[Any], int] = lambda string: int(string.replace(',', ''))
 string_to_float: Callable[[Any], float] = lambda string: float(string.strip('m ').replace(',', ''))
 
+avg = lambda s: sum(s) / len(s)
+
 def clean_number(string):
     if not string.strip('€').isdigit():
         return 0
