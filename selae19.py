@@ -3,10 +3,10 @@ import pickle
 import re
 
 from argparse import ArgumentParser
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from typing import Pattern
 
-from core import Browser, BeautifulSoup, clean_number, data_a_objecte
+from core import avg, BeautifulSoup, Browser, clean_number, data_a_objecte
 
 
 class TinyStats:
@@ -100,6 +100,8 @@ class Loterias:
         self.html = html.find('div', {'class': 'contenidoRegion'})
 
     def save(self):
+        if len(self.data)<1:
+            raise MemoryError('No data to save')
         with open(self.data_filename, 'wb') as f:
             pickle.dump(self.data, f, pickle.HIGHEST_PROTOCOL)
 
@@ -119,6 +121,8 @@ class Draw:
         self.repeated_unities = []
         self.repeated_dozens = []
         self.consecutives = []
+        self.alreadyseen = []
+        self.steps = []
         self.previous_draw = ''
         self.next_draw = ''
         self.href = ''
@@ -129,6 +133,12 @@ class EuromilionsDraw(Draw):
     def __init__(self):
         Draw.__init__(self)
 
+    def __extend(self):
+        n = list(self.numbers)
+        n.sort()
+        s = tuple([n[i + 1] - n[i] for i in range(0, 4)])
+        return f"\n{'': >8}Steps: {n} {s} {max(s)} {min(s)} {avg(s)} {sum(s)}"
+
     def __str__(self):
         return f"""
         Data: {self.datetime:%Y/%m/%d}
@@ -137,6 +147,7 @@ class EuromilionsDraw(Draw):
         Consecutives: {self.consecutives}
         Repeated Unities: {self.repeated_unities}
         Repeated Dozens: {self.repeated_dozens}
+        Repeated Numbers: {self.alreadyseen}
         Dozens: {self.dozens}
         href: {self.href}
         prev: {self.previous_draw}
@@ -153,7 +164,7 @@ class Euromilions(Loterias):
 
     def __init__(self):
         Loterias.__init__(self)
-        self.skip_header = '/es/euromillones'
+        self.skip_header = '/es/euromillones/sorteos'
         self.home += '/euromillones'
         self._current_draw: EuromilionsDraw = None
         self.data_filename = 'euromillones.bin'
@@ -166,7 +177,7 @@ class Euromilions(Loterias):
 
     def fetch_draw_data(self, draw):
         draw = draw.replace(self.skip_header, '')
-        self.current_content(draw)
+        self.current_content("%s%s" % ('/sorteos', draw))
         regions = self.html.find_all('div', {'class': 'contenidoRegion'})
         self._current_draw = EuromilionsDraw()
         self._current_draw.href = draw
@@ -270,17 +281,28 @@ class Euromilions(Loterias):
     def walk(self):
         if len(self.data) == 0:
             self.load()
+        i=0;j=0
         for key in self.data:
             draw: EuromilionsDraw= self.data[key]
-            print (f"{key}.-{draw}")
+            print(f"{key}.-{draw}")
+            if draw.alreadyseen:
+                i+=1
+            if draw.consecutives:
+                j += 1
+        print(len(self.data))
+        print("repeated", i, (  i*100)/len(self.data))
+        print("consecutives", j, (j*100)/len(self.data))
         self.show()
 
     def show(self):
+        s = SelectNextDrawWeekDay()
+        next_draw = datetime.strftime(s.run(), "%a %Y/%m/%d")
         print(
             f"""
             VISITED PAGES: {self.visited_pages}
             INIT TIME: {self.init_time:%Y/%m/%d %H:%M:%S}
             CUR TIME: {datetime.now():%Y/%m/%d %H:%M:%S}
+            NEXT DRAW: {next_draw}
             """
         )
 
@@ -288,7 +310,7 @@ class Euromilions(Loterias):
         data = data_a_objecte('viernes 24 de diciembre de 2010')
         j = 1
         for i in range(7482, 4969, -7):
-            url = f"/sorteos/{data:%Y}/{i}02001"
+            url = f"/{data:%Y}/{i}02001"
             #print(f"{j: >3} {url} {data:%Y/%m/%d}")
             data = data - timedelta(days=7)
             j += 1
@@ -300,6 +322,19 @@ class Euromilions(Loterias):
         self.save()
         self.show()
 
+    def fix_links(self):
+        """
+        Els enllaços a partir del 2010/12/31 no estan bé al web i no són accessibles.
+        Amb el mètode get_more_url() superem este inconvenient, però els enllaços que es
+        desen automàticament són erronis.
+
+        Recorrem de nou els sortejos i els deixem els enllaços correctes.
+        """
+        for draw_id in range(360, 0, -1):
+            draw = self.data[draw_id]
+            draw.next_draw = self.data[draw_id+1].href
+            draw.previous_draw = self.data[draw_id-1].href if self.data.get(draw_id-1) else ''
+
     def reverse_indexes(self):
         aux = {}
         for k in reversed(sorted(self.data.keys())):
@@ -307,15 +342,11 @@ class Euromilions(Loterias):
             print(k, '->', i, self.data[k])
             aux.setdefault(i, self.data[k])
         self.data = aux
-        self.save()
-        self.show()
 
     def fix_draw(self, draw_id=291):
         # for draw_id in range(48, 274):
         #     self.get_draw(self.data[draw_id].href, draw_id)
         self.get_draw(self.data[draw_id].href, draw_id)
-        self.save()
-        self.show()
 
     def fix(self):
         if len(self.data) == 0:
@@ -324,13 +355,12 @@ class Euromilions(Loterias):
             draw: EuromilionsDraw = self.data[key]
             draw.repeated_dozens = stats.get_repeated_tens(draw.numbers)
             print(f"{key}.-{draw}")
-        self.save()
-        self.show()
 
     def download_database(self):
         self.surf()
         self.dont_stop()
         self.reverse_indexes()
+        self.fix_links()
         self.save()
         self.show()
 
@@ -349,16 +379,43 @@ class Euromilions(Loterias):
             self.save()
 
 
+class SelectNextDrawWeekDay:
+    def __init__(self):
+        self.today = date.today()
+        self.weekday = self.today.weekday()
+        self.now = datetime.now()
+
+    def run(self):
+        weekday = self.weekday
+        date = self.today
+        while (weekday not in (1, 4)):
+            date = datetime(date.year, date.month, date.day) + timedelta(days=1)
+            weekday = date.weekday()
+        return date
+
+
 if __name__ == '__main__':
     stats = TinyStats()
     euromilions = Euromilions()
     arg_parser = ArgumentParser()
     arg_parser.add_argument('-D', '--download', dest='dl_adb', action='store_true')
+    arg_parser.add_argument('-l', '--load', dest='load', action='store_true')
+    arg_parser.add_argument('-n', '--nextdraw', dest='nextdraw', action='store_true')
     arg_parser.add_argument('-w', '--walk', dest='walk', action='store_true')
     arg_parser.add_argument('-U', '--update', dest='update', action='store_true')
     arg_parser.add_argument('-S', '--save', dest='save', action='store_true', default=False)
     args = arg_parser.parse_args()
+    if args.dl_adb:
+        euromilions.download_database()
+    if args.load:
+        euromilions.load()
     if args.update:
         euromilions.update(args.save)
     if args.walk:
         euromilions.walk()
+    if args.nextdraw:
+        s = SelectNextDrawWeekDay()
+        locale.setlocale(locale.LC_ALL, "Catalan_Spain.1252")
+        next_draw = datetime.strftime(s.run(), "%a %d/%m/%y")
+        print(f"{'': >12}dia del següent sorteig: ", next_draw)
+        locale.setlocale(locale.LC_ALL, "Spanish_Spain.1252")
