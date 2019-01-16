@@ -130,11 +130,11 @@ class EuromilionsDraw(Draw):
     def __init__(self):
         Draw.__init__(self)
 
-    def __extend(self):
+    def delays(self):
         n = list(self.numbers)
         n.sort()
         s = tuple([n[i + 1] - n[i] for i in range(0, 4)])
-        return f"\n{'': >8}Steps: {n} {s} {max(s)} {min(s)} {avg(s)} {sum(s)}"
+        return {'numbers': n, 'steps': s, 'max': max(s), 'min': min(s), 'avg': avg(s), 'sum': sum(s)}
 
     def __str__(self):
         return f"""
@@ -152,7 +152,6 @@ class EuromilionsDraw(Draw):
         """
         # Dades sorteig: {self.bets}
         # Premis: {self.prizes}
-        # href: {self.href}
 
 
 class Euromilions(Loterias):
@@ -283,7 +282,7 @@ class Euromilions(Loterias):
             self.load()
         i=0;j=0
         for key in self.data:
-            draw: EuromilionsDraw= self.data[key]
+            draw: EuromilionsDraw = self.data[key]
             print(f"{key}.-{draw}")
             i+= len(draw.alreadyseen)
             j += len(draw.consecutives)
@@ -291,6 +290,20 @@ class Euromilions(Loterias):
         print("repeated", i, (  i*100)/len(self.data))
         print("consecutives", j, (j*100)/len(self.data))
         self.show()
+
+    def walk_steps(self):
+        self.load()
+        k = 0
+        t='\t'
+        for key in self.data:
+            draw: EuromilionsDraw = self.data[key]
+            steps = draw.delays()
+            numbers = list(draw.numbers)
+            numbers.sort()
+            if 50 > steps['sum'] > 0:
+                print(f"{draw.datetime:%Y/%m/%d}\t{t.join('%s' % n for n in numbers)}\t{draw.dozens}\t{steps['sum']}")
+                k += 1
+        print("delay:", k)
 
     def show(self):
         s = SelectNextDrawWeekDay()
@@ -405,6 +418,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('-l', '--load', dest='load', action='store_true')
     arg_parser.add_argument('-n', '--nextdraw', dest='nextdraw', action='store_true')
     arg_parser.add_argument('-w', '--walk', dest='walk', action='store_true')
+    arg_parser.add_argument('-W', '--walksteps', dest='walksteps', action='store_true')
     arg_parser.add_argument('-U', '--update', dest='update', action='store_true')
     arg_parser.add_argument('-S', '--save', dest='save', action='store_true', default=False)
     args = arg_parser.parse_args()
@@ -416,6 +430,8 @@ if __name__ == '__main__':
         euromilions.update(args.save)
     if args.walk:
         euromilions.walk()
+    if args.walksteps:
+        euromilions.walk_steps()
     if args.nextdraw:
         s = SelectNextDrawWeekDay()
         locale.setlocale(locale.LC_ALL, "Catalan_Spain.1252")
