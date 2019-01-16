@@ -21,11 +21,11 @@ class TinyStats:
         temp = [numbers[i + 1] - numbers[i] for i in range(4)]
         consecutives = []
         if sum(temp) == 4:
-            return tuple(numbers)
+            return [tuple(numbers)]
         elif sum(temp[:-1]) == 3:
-            return tuple(numbers[:4])
+            return [tuple(numbers[:4])]
         elif sum(temp[1:]) == 3:
-            return tuple(numbers[1:])
+            return [tuple(numbers[1:])]
         elif sum(temp[:2]) == 2:
             consecutives.append(tuple(numbers[:3]))
             numbers = numbers[3:]
@@ -172,6 +172,15 @@ class Euromilions(Loterias):
         last_result_link = last_result.get('href')
         self.last_result_link = last_result_link.replace(self.skip_header, '')
 
+    def get_draw(self, draw):
+        self.fetch_draw_data(draw)
+
+    def set_draw(self, draw_id=None):
+        if not draw_id:
+            self.data.setdefault(len(self.data), self._current_draw)
+        else:
+            self.data.update({draw_id: self._current_draw})
+
     def fetch_draw_data(self, draw):
         draw = draw.replace(self.skip_header, '')
         self.current_content("%s%s" % ('/sorteos', draw))
@@ -211,14 +220,6 @@ class Euromilions(Loterias):
         else:
             self.next_draw = None
         self._current_draw.updated = datetime.now()
-
-    def get_draw(self, draw, draw_id=None):
-        self.fetch_draw_data(draw)
-
-        if not draw_id:
-            self.data.setdefault(len(self.data), self._current_draw)
-        else:
-            self.data.update({draw_id: self._current_draw})
 
     def fetch_title(self, region: BeautifulSoup):
         locale.setlocale(locale.LC_TIME, 'Spanish_Spain.1252')
@@ -270,9 +271,11 @@ class Euromilions(Loterias):
         self.get_home_content()
         first_link = self.last_result_link
         self.get_draw(first_link)
+        self.set_draw()
         while self.prev_draw:
             print(self._current_draw)
             self.get_draw(self.prev_draw)
+            self.set_draw()
         self.show()
 
     def walk(self):
@@ -311,9 +314,13 @@ class Euromilions(Loterias):
             j += 1
             yield url
 
+    def get_new_draw_id(self):
+        return len(self.data)+1
+
     def dont_stop(self):
         for url in euromilions.get_more_url():
             self.get_draw(url)
+            self.set_draw()
         self.save()
         self.show()
 
@@ -360,16 +367,17 @@ class Euromilions(Loterias):
         self.show()
 
     def update(self, save=False):
+        """Become the update from the last draw."""
         self.load()
         last_draw_id = len(self.data)
         last_draw = self.data[last_draw_id]
-        has_next_link = last_draw.next_draw != ''
-        if not has_next_link:
-            self.get_draw(last_draw.href, last_draw_id)
+        self.get_draw(last_draw.href if not last_draw.next_draw != '' else self.get_draw(last_draw.next_draw))
+        self.set_draw(last_draw_id)
+        if self.next_draw:
             while self.next_draw:
                 self.get_draw(self.next_draw)
-        else:
-            self.get_draw(last_draw.next_draw, 1180)
+                self.set_draw(self.get_new_draw_id())
+
         if save:
             self.save()
 
