@@ -18,31 +18,28 @@ class TinyStats:
             return []
         numbers = list(numbers)
         numbers.sort()
+        temp = [numbers[i + 1] - numbers[i] for i in range(4)]
         consecutives = []
-
-        if numbers[4] - numbers[3] + numbers[3] - numbers[2] + numbers[2] - numbers[1] + numbers[1] - numbers[0] == 4:
-            consecutives = [tuple(numbers)]
-        else:
-            if numbers[3] - numbers[2] + numbers[2] - numbers[1] + numbers[1] - numbers[0] == 3:
-                consecutives.append((numbers[0], numbers[1], numbers[2], numbers[3]))
-            elif numbers[4] - numbers[3] + numbers[3] - numbers[2] + numbers[2] - numbers[1] == 3:
-                consecutives.append((numbers[0], numbers[1], numbers[2], numbers[3]))
-
-            if not consecutives:
-                for i in range(len(numbers) - 2):
-                    if numbers[i + 2] - numbers[i + 1] + numbers[i + 1] - numbers[i] == 2:
-                        consecutives.append((numbers[i], numbers[i + 1], numbers[i + 2]))
-
-                for c in range(len(consecutives)):
-                    for n in consecutives[c]:
-                        numbers.remove(n)
-
-            if len(numbers) >= 3:
-                for i in range(len(numbers) - 1):
-                    if numbers[i + 1] - numbers[i] == 1:
-                        consecutives.append((numbers[i], numbers[i + 1]))
-            if len(numbers) == 2 and numbers[1] - numbers[0] == 1:
-                consecutives.append((numbers[0], numbers[1]))
+        if sum(temp) == 4:
+            return tuple(numbers)
+        elif sum(temp[:-1]) == 3:
+            return tuple(numbers[:4])
+        elif sum(temp[1:]) == 3:
+            return tuple(numbers[1:])
+        elif sum(temp[:2]) == 2:
+            consecutives.append(tuple(numbers[:3]))
+            numbers = numbers[3:]
+        elif sum(temp[1:3]) == 2:
+            consecutives.append(tuple(numbers[1:3]))
+            numbers=[]
+        elif sum(temp[2:]) == 2:
+            consecutives.append(tuple(numbers[2:]))
+            numbers = numbers[:2]
+        if numbers:
+            length = len(numbers) - 1
+            if length:
+                for e in [(numbers[i], numbers[i+1]) for i in range(length) if numbers[i+1]-numbers[i] == 1]:
+                    consecutives.append(e)
         return consecutives
 
     def get_repeated_unities(self, numbers):
@@ -285,10 +282,8 @@ class Euromilions(Loterias):
         for key in self.data:
             draw: EuromilionsDraw= self.data[key]
             print(f"{key}.-{draw}")
-            if draw.alreadyseen:
-                i+=1
-            if draw.consecutives:
-                j += 1
+            i+= len(draw.alreadyseen)
+            j += len(draw.consecutives)
         print(len(self.data))
         print("repeated", i, (  i*100)/len(self.data))
         print("consecutives", j, (j*100)/len(self.data))
