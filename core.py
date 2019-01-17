@@ -21,13 +21,17 @@ class Browser:
         soup = BeautifulSoup(self._get_page_content(url), "html.parser")
         return soup
 
-
 string_to_int: Callable[[Any], int] = lambda string: int(string.replace(',', ''))
 string_to_float: Callable[[Any], float] = lambda string: float(string.strip('m ').replace(',', ''))
 
 avg = lambda s: sum(s) / len(s)
 
 def clean_number(string):
+    if not string.strip(' %s' % _currency).isdigit():
+        return 0
+    return locale.atof(string.strip(' %s' % _currency))
+
+def old_clean_number(string):
     if not string.strip('€').isdigit():
         return 0
     string = string.rstrip(" €").replace('.', '')
@@ -38,6 +42,10 @@ def clean_number(string):
 
 
 def data_a_objecte(data='viernes 1 de enero de 2010'):
-    locale.setlocale(locale.LC_TIME, 'Spanish_Spain.1252')
     dt = datetime.strptime(re.search(r'^(\w+ \d{1,2} de \w+ de 20\d{2})$', data).group(1), "%A %d de %B de %Y")
     return dt
+
+
+locale.setlocale(locale.LC_TIME, 'Spanish_Spain.1252')
+locale.setlocale(locale.LC_MONETARY, 'ca_AD.UTF8')
+_currency = locale.localeconv()['currency_symbol']
