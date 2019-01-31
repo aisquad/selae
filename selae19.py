@@ -31,16 +31,23 @@ class TinyStats:
             numbers = numbers[3:]
         elif sum(temp[1:3]) == 2:
             consecutives.append(tuple(numbers[1:3]))
-            numbers=[]
+            numbers = []
         elif sum(temp[2:]) == 2:
             consecutives.append(tuple(numbers[2:]))
             numbers = numbers[:2]
         if numbers:
             length = len(numbers) - 1
             if length:
-                for e in [(numbers[i], numbers[i+1]) for i in range(length) if numbers[i+1]-numbers[i] == 1]:
+                for e in [(numbers[i], numbers[i + 1]) for i in range(length) if numbers[i + 1] - numbers[i] == 1]:
                     consecutives.append(e)
         return consecutives
+
+    def get_consecutives_by_length(self, numbers):
+        lengths = []
+        consec = self.get_consecutives(numbers)
+        for items in consec:
+            lengths.append(len(items))
+        return lengths
 
     def get_repeated_unities(self, numbers):
         repeated = []
@@ -164,6 +171,8 @@ class Euromilions(Loterias):
         self.home += '/euromillones'
         self._current_draw: EuromilionsDraw = None
         self.data_filename = 'euromillones.bin'
+        self.numbers = range(1, 51)
+        self.special_numbers = range(1,13)
 
     def get_home_content(self):
         self.current_content()
