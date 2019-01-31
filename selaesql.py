@@ -82,7 +82,7 @@ class EuroSQL(SQL):
                             mdraw['bola4'],
                             mdraw['bola5'],
                         )
-                            for mdraw in match if mdraw['data_sorteig'] if f"{draws[draw].datetime:%Y/%m/%d}" != f"{mdraw['data_sorteig']:%Y/%m/%d}"
+                            for mdraw in match if f"{draws[draw].datetime:%Y/%m/%d}" != f"{mdraw['data_sorteig']:%Y/%m/%d}"
                     ]
                 )
                 draw_set.add(draw)
