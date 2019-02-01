@@ -68,8 +68,8 @@ class EuroSQL(SQL):
         draw_set = set()
         for draw in draws:
             numbers = draws[draw].numbers
-            match = self.get_match(numbers, 4)
-            if len(match) > 1:
+            match =  [md for md in self.get_match(numbers, 4) if f"{draws[draw].datetime:%Y/%m/%d}" > f"{md['data_sorteig']:%Y/%m/%d}"]
+            if len(match) > 0:
                 i+=1
                 print (
                     f"{i: >3}.- {draws[draw].datetime:%Y/%m/%d} {draws[draw].numbers} [{len(match)-1}] -> ",
@@ -82,7 +82,7 @@ class EuroSQL(SQL):
                             mdraw['bola4'],
                             mdraw['bola5'],
                         )
-                            for mdraw in match if f"{draws[draw].datetime:%Y/%m/%d}" != f"{mdraw['data_sorteig']:%Y/%m/%d}"
+                            for mdraw in match
                     ]
                 )
                 draw_set.add(draw)
