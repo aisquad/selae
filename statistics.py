@@ -1,6 +1,8 @@
+import json
+
 from itertools import product, combinations
 from argparse import ArgumentParser
-from selae.selae19 import Euromilions, EuromilionsDraw, TinyStats
+from selae.selae20 import Euromillions, EuromillionsDraw, EuroPrize
 
 class Number:
     def __init__(self):
@@ -26,12 +28,13 @@ class Ball(Number):
         Number.__init__(self)
 
 
-class Statistics(TinyStats):
+class Statistics(EuromillionsDraw):
     def __init__(self):
-        TinyStats.__init__(self)
-        euromilions = Euromilions()
+        EuromillionsDraw.__init__(self)
+        euromilions = Euromillions()
         euromilions.load()
         self.data = euromilions.data
+        self.check_data = euromilions.check_data
         self.balls = {}
         self.save = euromilions.save
         self.skip = 0
@@ -41,21 +44,24 @@ class Statistics(TinyStats):
 
     def get_keys(self):
         if not self.skip:
-            for key in reversed(sorted(self.data.keys())):
-                yield key
+            for draw in self.data:
+                yield draw.id
         else:
             next = 0
-            for key in reversed(sorted(self.data.keys())):
+            for draw in self.data:
+                key = draw.id
                 if next < self.skip:
                     next += 1
                     continue
-                #print(f"#KEY: {key}")
                 yield key
 
     def run(self):
         """
+        Primer actualitzem els repetits del darrer sorteig amb l'anterior.
         Obtenim les estadístiques dels 50 números
         """
+        if args.alreadyseen:
+            self.set_repeated_balls()
         for i in range(1, 51):
             ball = Ball()
             ball.number = i
@@ -77,6 +83,18 @@ class Statistics(TinyStats):
             ball.last_500 = self.count(i, 500)
             self.balls[i] = ball
 
+    def fix_alreadyseen(self):
+        for draw in self.data:
+            id = draw.id - 1
+            last_draw = self.data[id-1]
+            cur_draw = self.data[id]
+            already_seen = [n for n in cur_draw.balls if n in last_draw.balls]
+            already_seen.sort()
+            print (id, last_draw.balls, cur_draw.balls, already_seen, cur_draw.alreadyseen)
+            cur_draw.alreadyseen = already_seen
+        self.save()
+
+
     def count(self, number, limit=0):
         """
         Contem el nombre de vegades que ha eixit un número durant els x sortejos.
@@ -84,7 +102,7 @@ class Statistics(TinyStats):
         counter = 0
         loop = 1
         for key in self.get_keys():
-            if number in self.data[key].numbers:
+            if number in self.data[key-1].balls:
                 counter += 1
             if limit and loop > limit - 1:
                 break
@@ -97,9 +115,9 @@ class Statistics(TinyStats):
         """
         i = 0
         for key in self.get_keys():
-            draw = self.data[key]
-            if number in draw.numbers:
-                return {'draws': i, 'date': draw.datetime, 'draw_id': key}
+            draw = self.data[key-1]
+            if number in draw.balls:
+                return {'draws': i, 'date': draw.date.to_date(), 'draw_id': key}
             i += 1
 
     def get_frequence(self, item_list):
@@ -122,15 +140,15 @@ class Statistics(TinyStats):
     def number_frequence(self, number):
         last_seen_list = []
         for key in self.get_keys():
-            draw = self.data[key]
-            if number in draw.numbers:
+            draw = self.data[key-1]
+            if number in draw.balls:
                 last_seen_list.append(key)
         return self.get_frequence(last_seen_list)
 
     def specnumb_frequence(self, stars):
         last_seen_list = []
         for key in self.get_keys():
-            special_numbers = sorted(self.data[key].special_numbers)
+            special_numbers = sorted(self.data[key-1].stars)
             if stars == f"{special_numbers[0]:02}{special_numbers[1]:02}":
                 last_seen_list.append(key)
         return self.get_frequence(last_seen_list)
@@ -144,7 +162,8 @@ class Statistics(TinyStats):
         """
         dozens_dict = {}
         for draw_id in self.get_keys():
-            dozens = self.data[draw_id].dozens
+            key = draw_id - 1
+            dozens = self.data[key].get_tens()
             if dozens_dict.get(dozens):
                 dozens_dict[dozens].append(draw_id)
             else:
@@ -170,6 +189,15 @@ class Statistics(TinyStats):
             if self.balls[i].last_5 == 0:
                 ball_list.append(i)
         return ball_list
+
+    def set_repeated_balls(self):
+        self.check_data()
+        print("LEN DATA:", len(self.data))
+        cur_draw_id = self.data[-1].id
+        prev_draw = self.data[cur_draw_id-1]
+        cur_draw: EuromillionsDraw = self.data[cur_draw_id]
+        cur_draw.alreadyseen = [n for n in prev_draw.numbers if n in cur_draw.numbers]
+        self.save()
 
     def check_issues(self):
         for i in range(1, 51):
@@ -221,12 +249,12 @@ class Statistics(TinyStats):
                 yield "".join(str(i) for i in permutation)
 
     def _get_consecutives(self, draw_id):
-        draw: EuromilionsDraw = self.data[draw_id]
-        numbers = sorted(draw.numbers)
+        draw: EuromillionsDraw = self.data[draw_id]
+        numbers = sorted(draw.balls)
         return self.get_consecutives(numbers)
 
     def _get_repeated_unities(self, draw):
-        numbers = sorted(self.data[draw].numbers)
+        numbers = sorted(self.data[draw].balls)
         return self.get_repeated_unities(numbers)
 
     def _get_repeated_tens(self, draw):
@@ -238,21 +266,31 @@ class Statistics(TinyStats):
         return self.get_dozens(numbers)
 
     def last_draw(self):
-        print(self.data[len(self.data)])
+        print(self.data[-1])
+
+    def soupify(self, soup):
+        string = "\n"
+        for key in soup:
+            string += f"\t[:{key}:] ->\n"
+            for subkey in reversed(list(soup[key].keys())):
+                string += f"\t\t[:{subkey}:] -> ({', '.join(str(x) for x in soup[key][subkey])})\n"
+        return string
 
     def show_last_draws(self, limit=5):
         i = 1
         for draw_id in self.get_keys():
+            key = draw_id - 1
             if i > limit:
                 break
-            draw = self.data[draw_id]
+            draw = self.data[key]
             print(draw)
             i += 1
 
         last_5 = self.balls_in_last_5()
         more = [b for b in range(1,51) if b not in last_5] #self.balls_not_in_last_5()
         print(f"\n\n{len(last_5)}: {last_5}\n{len(more)}: {more}".replace(", ", "\t"))
-        print (f"bab: {self.show_balls_by_appearance_order(last_5)}".replace(", ", "\t"))
+        last_5_soup = self.show_balls_by_appearance_order(last_5)
+        print (f"bab: {self.soupify(last_5_soup)}".replace(", ", "\t"))
 
     def show_balls_by_appearance_order(self, expected_balls=[]):
         """
@@ -260,18 +298,20 @@ class Statistics(TinyStats):
         cinc sortejos.
         S'ordenen per ordre d'aparició, els de més a l'esquerra són els més antics. El
         diccionari els tria per desenes.
+
+        Li passem la llista de les boles dels cinc darrers sortejos.
         """
         by_appearance_order_balls = []
-        draw_id = len(self.data)-self.skip
+        draw_id = (self.data[-1].id -1) - self.skip
         while len(by_appearance_order_balls)<50:
             draw = self.data[draw_id]
-            for ball in draw.numbers:
+            for ball in draw.balls:
                 if ball in by_appearance_order_balls:
                     by_appearance_order_balls.remove(ball)
                 by_appearance_order_balls.insert(0, ball)
             draw_id -= 1
-        last_5_dict = {4:[],3:[],2:[],1:[],0:[]}
-        remainder_dict = {4:[],3:[],2:[],1:[],0:[]}
+        last_5_dict = {4:[], 3: [], 2: [], 1: [], 0: []}
+        remainder_dict = {4: [], 3: [], 2: [], 1: [], 0: []}
         for k in by_appearance_order_balls:
             if k in expected_balls:
                 last_5_dict[self.get_dozen(k)].append(k)
@@ -285,8 +325,9 @@ class Statistics(TinyStats):
         """
         friends = {}
         for draw_id in self.get_keys():
-            if number in self.data[draw_id].numbers:
-                numbers = list(self.data[draw_id].numbers)
+            key = draw_id - 1
+            if number in self.data[key].balls:
+                numbers = list(self.data[key].balls)
                 numbers.remove(number)
                 for n in numbers:
                     if friends.get(n):
@@ -324,7 +365,7 @@ class Statistics(TinyStats):
         """
         sdict = {}
         for sn in combinations(range(1,13), 2):
-            key = f'{sn[0]:02}{sn[1]:02}'
+            key = f"{sn[0]:02}{sn[1]:02}"
             sdict[key] = self.specnumb_frequence(key)
 
         self.header('STARS')
@@ -350,35 +391,48 @@ class Statistics(TinyStats):
                 if k in best_friends:
                     print("\t", k, tuple(sorted(inv_friends[k])))
 
-    def crosses(self, draw_id=0):
+    def crosses(self, draw_id=0, hide_header=False):
         """
         Mostra les creus per a la fulla de càlcul.
         """
         if not draw_id:
-            draw_id = len(self.data)
+            key = self.data[-1].id - 1
+        else:
+            key = draw_id - 1
         cross = '×'
-        rtn = "\n\n== # ×+× CROSSES ×+× # ==\n%s\t%s\n" % (' ' * 10, '\t'.join(str(i) for i in range(1,51)))
-        draw = self.data[draw_id]
-        rtn += f'{draw.datetime:%Y/%m/%d}\t'
+        header = "%s%s\t%s\n" % (
+            '\n\n== # ×+× CROSSES ×+× # ==\n',
+            ' ' * 10,
+            '\t'.join(str(i) for i in range(1,51))
+        )
+        rtn = header if not hide_header else ''
+        draw = self.data[key]
+        rtn += f'{draw.date.to_date():%Y/%m/%d}\t'
         for i in range(1, 51):
-            if i in draw.numbers:
+            if i in draw.balls:
                 rtn += f'{cross}'
             rtn += '\t'
-        rtn += '\n'
         print (rtn)
 
+
 if __name__ == '__main__':
+    """-rtCdR 0"""
+    """-rtCduR 0"""
+
     stats = Statistics()
     arg_parser = ArgumentParser()
     arg_parser.add_argument('-C', dest='csv', action='store_true')
     arg_parser.add_argument('-c', dest='checkissues', action='store_true')
+    arg_parser.add_argument('-F', dest='fixalreadyseen', action='store_true', default=False)
+    arg_parser.add_argument('-i', dest='increase', action='store_true', default=False)
     arg_parser.add_argument('-k', dest='combinatories', action='store_true')
-    arg_parser.add_argument('-R', '--crosses', dest='crosses', action='store', type=int)
+    arg_parser.add_argument('-R', '--crosses', dest='crosses', action='store', type=int, default=0)
     arg_parser.add_argument('-d', dest='dozenstables', action='store_true')
     arg_parser.add_argument('-f', dest='flashback', action='store', type=int)
     arg_parser.add_argument('-r', dest='run', action='store_true')
     arg_parser.add_argument('-s', dest='spectrum', action='store_true')
     arg_parser.add_argument('-t', dest='specnumtable', action='store_true')
+    arg_parser.add_argument('-u', '--updatealreadyseen', dest='alreadyseen', action='store_true')
     arg_parser.add_argument('-w', dest='watch', action='store_true')
     args = arg_parser.parse_args()
 
@@ -388,6 +442,8 @@ if __name__ == '__main__':
         stats.flash_back(args.flashback)
     if args.run:
         stats.run()
+    if args.fixalreadyseen:
+        stats.fix_alreadyseen()
     if args.csv:
         stats.to_cvs()
     if args.dozenstables:
@@ -395,4 +451,13 @@ if __name__ == '__main__':
     if args.specnumtable:
         stats.special_number_table()
     if args.crosses is 0 or args.crosses:
-        stats.crosses()
+        stats.crosses(args.crosses)
+        if args.increase:
+            hide=False
+            while True:
+                try:
+                    args.crosses += 1
+                    stats.crosses(args.crosses, hide_header=hide)
+                    hide=True
+                except:
+                    break

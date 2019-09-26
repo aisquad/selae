@@ -1,3 +1,4 @@
+#!python3
 import locale
 import pickle
 import re
@@ -6,7 +7,7 @@ from argparse import ArgumentParser
 from datetime import datetime, date, timedelta
 from typing import Pattern
 
-from core import avg, BeautifulSoup, Browser, clean_number, data_a_objecte
+from core import avg, BeautifulSoup, Browser, clean_number, data_a_objecte, Display
 
 
 class TinyStats:
@@ -30,7 +31,7 @@ class TinyStats:
             consecutives.append(tuple(numbers[:3]))
             numbers = numbers[3:]
         elif sum(temp[1:3]) == 2:
-            consecutives.append(tuple(numbers[1:3]))
+            consecutives.append(tuple(numbers[1:4]))
             numbers = []
         elif sum(temp[2:]) == 2:
             consecutives.append(tuple(numbers[2:]))
@@ -98,7 +99,7 @@ class Loterias:
     def current_content(self, page=''):
         self.visited_pages += 1
         url = "%s%s" % (self.home, page)
-        print ("#URL", url)
+        display.print ("#URL", url)
         html = self._browser.parse_html(url)
         self.links = html.find('div', {'class': 'contenedorEnlaces'})
         self.html = html.find('div', {'class': 'contenidoRegion'})
@@ -159,6 +160,12 @@ class EuromilionsDraw(Draw):
         """
         # Dades sorteig: {self.bets}
         # Premis: {self.prizes}
+
+
+class ElGordo(Loterias):
+    def __init__(self):
+        Loterias.__init__(self)
+        self.home += "/gordo-primitiva"
 
 
 class Euromilions(Loterias):
@@ -235,7 +242,7 @@ class Euromilions(Loterias):
         if not h2_tag:
             h2_tag = region.find('h3')
         if not h2_tag:
-            print (region)
+            display.print (region)
         self._current_draw.datetime = datetime.strptime(
             re.search(
                 r'Sorteo\xa0\d{1,3}, (\w+ \d{1,2} de \w+ de 20\d{2})$',
@@ -245,7 +252,7 @@ class Euromilions(Loterias):
 
     def fetch_bets(self, region: BeautifulSoup):
         #items = [(re.search(r"^([^:\xa0]+):?[ \xa0]([\d,.]+)[ €]*$", p.text), '%r' % p.text) for p in region.find_all('p')]
-        #print(items)
+        #display.print(items)
         items = [re.search(r"^([^:\xa0]+):?[ \xa0]([\d,.]+)[ €]*$", p.text).groups() for p in region.find_all('p')]
         self._current_draw.bets = dict([(k,clean_number(v)) for k, v in items])
 
@@ -281,7 +288,7 @@ class Euromilions(Loterias):
         self.get_draw(first_link)
         self.set_draw()
         while self.prev_draw:
-            print(self._current_draw)
+            display.print(self._current_draw)
             self.get_draw(self.prev_draw)
             self.set_draw()
         self.show()
@@ -292,12 +299,12 @@ class Euromilions(Loterias):
         i=0;j=0
         for key in self.data:
             draw: EuromilionsDraw = self.data[key]
-            print(f"{key}.-{draw}")
+            display.print(f"{key}.-{draw}")
             i+= len(draw.alreadyseen)
             j += len(draw.consecutives)
-        print(len(self.data))
-        print("repeated", i, (  i*100)/len(self.data))
-        print("consecutives", j, (j*100)/len(self.data))
+        display.print(len(self.data))
+        display.print("repeated", i, (  i*100)/len(self.data))
+        display.print("consecutives", j, (j*100)/len(self.data))
         self.show()
 
     def walk_steps(self):
@@ -310,14 +317,16 @@ class Euromilions(Loterias):
             numbers = list(draw.numbers)
             numbers.sort()
             if 50 > steps['sum'] > 0:
-                print(f"{draw.datetime:%Y/%m/%d}\t{t.join('%s' % n for n in numbers)}\t{draw.dozens}\t{steps['sum']}")
+                display.print(
+                    f"{draw.datetime:%Y/%m/%d}\t{t.join('%s' % n for n in numbers)}\t{draw.dozens}\t{steps['sum']}"
+                )
                 k += 1
-        print("delay:", k)
+                display.print("delay:", k)
 
     def show(self):
         s = SelectNextDrawWeekDay()
         next_draw = datetime.strftime(s.run(), "%a %Y/%m/%d")
-        print(
+        display.print(
             f"""
             VISITED PAGES: {self.visited_pages}
             INIT TIME: {self.init_time:%Y/%m/%d %H:%M:%S}
@@ -331,7 +340,7 @@ class Euromilions(Loterias):
         j = 1
         for i in range(7482, 4969, -7):
             url = f"/{data:%Y}/{i}02001"
-            #print(f"{j: >3} {url} {data:%Y/%m/%d}")
+            #display.print(f"{j: >3} {url} {data:%Y/%m/%d}")
             data = data - timedelta(days=7)
             j += 1
             yield url
@@ -340,7 +349,7 @@ class Euromilions(Loterias):
         return len(self.data)+1
 
     def dont_stop(self):
-        for url in euromilions.get_more_url():
+        for url in game.get_more_url():
             self.get_draw(url)
             self.set_draw()
         self.save()
@@ -363,7 +372,7 @@ class Euromilions(Loterias):
         aux = {}
         for k in reversed(sorted(self.data.keys())):
             i = len(aux) + 1
-            print(k, '->', i, self.data[k])
+            display.print(k, '->', i, self.data[k])
             aux.setdefault(i, self.data[k])
         self.data = aux
 
@@ -378,7 +387,7 @@ class Euromilions(Loterias):
         for key in self.data:
             draw: EuromilionsDraw = self.data[key]
             draw.repeated_dozens = stats.get_repeated_tens(draw.numbers)
-            print(f"{key}.-{draw}")
+            display.print(f"{key}.-{draw}")
 
     def download_database(self):
         self.surf()
@@ -420,8 +429,10 @@ class SelectNextDrawWeekDay:
 
 
 if __name__ == '__main__':
+    """-Uwn"""
     stats = TinyStats()
-    euromilions = Euromilions()
+    game = Euromilions()
+    display = Display()
     arg_parser = ArgumentParser()
     arg_parser.add_argument('-D', '--download', dest='dl_adb', action='store_true')
     arg_parser.add_argument('-l', '--load', dest='load', action='store_true')
@@ -432,18 +443,18 @@ if __name__ == '__main__':
     arg_parser.add_argument('-S', '--save', dest='save', action='store_true', default=False)
     args = arg_parser.parse_args()
     if args.dl_adb:
-        euromilions.download_database()
+        game.download_database()
     if args.load:
-        euromilions.load()
+        game.load()
     if args.update:
-        euromilions.update(args.save)
+        game.update(args.save)
     if args.walk:
-        euromilions.walk()
+        game.walk()
     if args.walksteps:
-        euromilions.walk_steps()
+        game.walk_steps()
     if args.nextdraw:
         s = SelectNextDrawWeekDay()
         locale.setlocale(locale.LC_ALL, "Catalan_Spain.1252")
         next_draw = datetime.strftime(s.run(), "%a %d/%m/%y")
-        print(f"{'': >12}dia del següent sorteig: ", next_draw)
+        display.print(f"{'': >12}dia del següent sorteig: ", next_draw)
         locale.setlocale(locale.LC_ALL, "Spanish_Spain.1252")

@@ -1,5 +1,6 @@
-from core import SQL
-from selae.selae19 import Euromilions, EuromilionsDraw
+from argparse import ArgumentParser
+from core import SQL, Display
+from selae.selae20 import Euromillions, EuromillionsDraw, EuroPrize
 from configparser import ConfigParser
 from datetime import datetime
 from itertools import combinations
@@ -7,7 +8,7 @@ from itertools import combinations
 class EuroSQL(SQL):
     def __init__(self):
         SQL.__init__(self)
-        self.euromilions = Euromilions()
+        self.euromillions = Euromillions()
 
     def config_dict(self):
         cfg = ConfigParser()
@@ -26,24 +27,26 @@ class EuroSQL(SQL):
         table = 'boles'
         cols = ('data_sorteig', 'bola1', 'bola2', 'bola3', 'bola4', 'bola5', 'estrella1', 'estrella2', 'data_insercio')
         keys = self.get_keys()
-        for draw_id, draw in self.euromilions.data.items():
-            if draw_id in keys:
+        for draw in self.euromillions.data:
+            if draw.id in keys:
                 continue
-            # print (draw_id, draw.numbers, draw.special_numbers)
-            values = list(draw.numbers)
-            values.append(draw.special_numbers[0])
-            values.append(draw.special_numbers[1])
+            display.verbose("INSERT INTO:", draw.id, draw.balls, draw.stars, level=0)
+            values = list(draw.balls)
+            values.append(draw.stars[0])
+            values.append(draw.stars[1])
             values.append(f'{datetime.now():%Y-%m-%d %H:%M:%S}')
-            # values.insert(0, draw_id)
-            values.insert(0, f"{draw.datetime:%Y-%m-%d}")
+            values.insert(0, f"{draw.date.to_date():%Y-%m-%d}")
             self.insert_into(table, cols, values)
             self.connection.commit()
 
+    def lastdraw(self):
+        return self.get_last_recordset('boles', 'data_sorteig DESC')
+
     def init(self):
         self.set_connection(self.config_dict())
-        self.euromilions.load()
+        self.euromillions.load()
 
-    def get_match(self, numbers, r):
+    def get_match(self, numbers, r=5):
         """
         min: 2, max: len(numbers)
 
@@ -62,20 +65,31 @@ class EuroSQL(SQL):
         where = where.strip("OR ")
         return self.match('boles', where)
 
-    def got_matches(self):
-        draws = self.euromilions.data
+    def soupify(self, soup):
+        i=1
+        string = ""
+        for key in soup:
+            string += f"{i}.- [:{key}:] ->\n\t[#{len(soup[key])}: {', '.join(str(x) for x in soup[key])}#]\n"
+            i += 1
+        return string
+
+    def got_matches(self, r=4):
+        draws = self.euromillions.data
         i=0
-        draw_set = set()
+        replier_draw = []
+        replied_draw = []
+        repeated_draws = []
+        draw_dict = {}
         for draw in draws:
-            numbers = draws[draw].numbers
-            match =  [md for md in self.get_match(numbers, 4) if f"{draws[draw].datetime:%Y/%m/%d}" > f"{md['data_sorteig']:%Y/%m/%d}"]
+            numbers = draw.balls
+            match =  [md for md in self.get_match(numbers, r) if f"{draw.date.to_date():%Y/%m/%d}" > f"{md['data_sorteig']:%Y/%m/%d}"]
             if len(match) > 0:
-                i+=1
-                print (
-                    f"{i: >3}.- {draws[draw].datetime:%Y/%m/%d} {draws[draw].numbers} [{len(match)-1}] -> ",
+                i += 1
+                display.print(
+                    f"{i: >3}.- [{draw.id: >4}] {draw.date.to_date():%Y/%m/%d} {draw.balls} [{len(match)}] -> ",
                     [
                         (
-                            f"{mdraw['data_sorteig']:%Y/%m/%d}",
+                            f"[{mdraw['id_sorteig']}] {mdraw['data_sorteig']:%Y/%m/%d}",
                             mdraw['bola1'],
                             mdraw['bola2'],
                             mdraw['bola3'],
@@ -85,18 +99,40 @@ class EuroSQL(SQL):
                             for mdraw in match
                     ]
                 )
-                draw_set.add(draw)
-        print ("TOTAL:", len(draw_set), list(sorted(draw_set)))
+                replier_draw.append(draw.id)
+                for mdraw in match:
+                    if mdraw['id_sorteig'] not in replied_draw:
+                        replied_draw.append(mdraw['id_sorteig'])
+                    else:
+                        repeated_draws.append(mdraw['id_sorteig'])
+                    if draw_dict.get(draw):
+                        draw_dict[draw.id].append(mdraw['id_sorteig'])
+                    else:
+                        draw_dict[draw.id] = [mdraw['id_sorteig']]
+
+        display.print ("REPLICATED:", len(replied_draw), replied_draw)
+        display.print ("REPLICANT:", len(replier_draw), replier_draw)
+        display.print ("REPEATED:", len(repeated_draws), repeated_draws)
+        display.print ("REPEATSET:", len(set(repeated_draws)), list(sorted(set(repeated_draws))))
+        display.print (self.soupify(draw_dict))
 
     def run(self):
         try:
             self.update()
-            self.got_matches()
+            self.got_matches(args.same)
+            if args.same > 4:
+                self.got_matches(4)
         finally:
             self.connection.close()
 
 
 if __name__ == "__main__":
+    arg_parser = ArgumentParser()
+    arg_parser.add_argument('-s', '--same', dest='same', action='store', type=int, default=4)
+    args = arg_parser.parse_args()
+
+    display = Display()
+
     eurosql = EuroSQL()
     eurosql.init()
     eurosql.run()
