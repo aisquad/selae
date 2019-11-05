@@ -19,7 +19,7 @@ class SelaeAPI:
     def __init__(self):
         self.home = 'https://www.loteriasyapuestas.es/servicios/'
         self.data = []
-        self.data_filename = 'eurojson.bin'
+        self.data_filename = 'data/eurojson.bin'
 
     def buscador(self, game, start_date, end_date, done=True):
         """
