@@ -183,14 +183,34 @@ class EuromillionsDraw:
                 repeated.append(tuple(t))
         return repeated
 
-    def get_dozens(self, numbers=None):
+    def get_dozens_old(self, numbers=None):
+        """unused / deprecated"""
         if not numbers:
             numbers = self.balls
         dozens = [0, 0, 0, 0, 0]
         for n in numbers:
             dozens[self.get_dozen(n)] += 1
         return "".join([str(d) for d in dozens])
-    
+
+    def get_dozens(self, numbers=None):
+        if not numbers:
+            numbers = self.balls
+        d = 0
+        for n in numbers:
+            if n == 50:
+                # include number 50 into dozen 4.
+                n = 49
+            d += 10 ** (4 - (n // 10))
+        return f'{d:0>5}'
+
+    def get_units(self, numbers=None):
+        if not numbers:
+            numbers = self.balls
+        u = 0
+        for n in numbers:
+            u += 10 ** (9 - (n % 10))
+        return f'{u:0>10}'
+
     def get_dozen_group(self, dozens=None):
         if not dozens:
             dozens = self.get_dozens()
@@ -203,6 +223,7 @@ class EuromillionsDraw:
         return f'{group:>05}'
 
     def get_dozen(self, i):
+        """unused / deprecated"""
         return i // 10 if i < 50 else 4
 
     def get_weight(self, numbers=None):
