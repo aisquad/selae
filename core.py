@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import locale
 import pymysql
 import re
@@ -7,10 +9,11 @@ from bs4 import BeautifulSoup
 from typing import Any, Callable
 from datetime import datetime, date, timedelta
 
+
 class Display:
     def __init__(self):
         self.debug_bool = False
-        self.verbose_idx = 4 # 0: show all; 6: show nothing
+        self.verbose_idx = 4  # 0: show all; 6: show nothing
 
     def verbose(self, message: str, *args, **kwargs):
         level = kwargs.pop('level') if 'level' in kwargs else self.verbose_idx
@@ -19,10 +22,10 @@ class Display:
         self.print(message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        if self.debug:
+        if self.debug_bool:
             self.print(message, *args, **kwargs)
 
-    def print(self, message, *args, **kwargs):
+    def print(self, message='', *args, **kwargs):
         if args and kwargs:
             print(message, *args, **kwargs)
         elif args:
@@ -31,6 +34,18 @@ class Display:
             print(message, **kwargs)
         else:
             print(message)
+
+    def empty_line(self):
+        print()
+
+    def title(self, title):
+        print(f"\n#{title.upper()}")
+
+    def end(self, new_lines=1):
+        print('\n' * new_lines)
+
+    def keyval(self, key, val):
+        print(f'\n#{key.upper()}: {val}\n')
 
 
 class SQL:
@@ -88,7 +103,7 @@ class SQL:
         _display.verbose("SQL:", sql, level=5)
         return sql
 
-    def insert_into(self, table, columns, values='', raw= ''):
+    def insert_into(self, table, columns, values='', raw=''):
         if raw:
             values = ''
         with self.cursor() as cursor:
@@ -143,8 +158,8 @@ class Browser:
         soup = BeautifulSoup(self._get_page_content(url), "html.parser")
         return soup
 
-class DateHandler:
 
+class DateHandler:
     Ymd_re = re.compile(r'^\d{4}(?P<sep>[-/])\d{2}(?P=sep)\d{2}$')
     dmY_re = re.compile(r'^\d{2}(?P<sep>[-/])\d{2}(?P=sep)\d{4}$')
     large_french_date_fmt_re = re.compile(r'^\w+ \d{1,2} \w+ \d{4} +à \d{2}:\d{2}$')
@@ -157,7 +172,7 @@ class DateHandler:
         r"(?:0[1-9]|1\d|2\d)-(?:0[1-9]|1[0-2])-(?:200[4-9]|201\d))$"
     )
 
-    def __init__(self, date_obj: date=None):
+    def __init__(self, date_obj: date = None):
         if not date_obj:
             date_obj = datetime.now()
         elif isinstance(date_obj, str):
@@ -172,16 +187,27 @@ class DateHandler:
                 date_obj = datetime.strptime(date_obj, "%A %d %B %Y  à %H:%M")
             elif self.large_iso_re.search(date_obj):
                 date_obj = datetime.strptime(date_obj, '%Y-%m-%d %H:%M:%S')
+
+        #       date_obj must be a datetime object at this point.
         self.date_obj = date_obj
 
     def to_short_ISO(self):
         return datetime.strftime(self.date_obj, '%Y-%m-%d')
 
-    def to_short_french(self):
+    def to_short_french_date(self):
         return datetime.strftime(self.date_obj, '%d-%m-%Y')
 
     def to_short_french_datetime(self):
         return datetime.strftime(self.date_obj, '%d-%m-%Y %H:%M')
+
+    def to_short_french_date_but_whole_month(self):
+        return datetime.strftime(self.date_obj, '%d %B %Y').lstrip('0')
+
+    def to_slashed_french_date(self):
+        return datetime.strftime(self.date_obj, '%d/%m/%Y').lstrip('0')
+
+    def to_short_french_datetime_with_weekday(self):
+        return datetime.strftime(self.date_obj, '%a %d-%m-%Y %H:%M')
 
     def substract_days(self, days):
         return self.date_obj - timedelta(days=days)
@@ -201,21 +227,50 @@ class DateHandler:
     def tomorrow(self):
         self.date_obj = date.today() + timedelta(days=1)
 
+    def add_days(self, days=1):
+        self.date_obj += timedelta(days=days)
+
+    def add_one_day(self):
+        self.add_days(1)
+
+    def set_time(self, hour: int, minute: int = 0):
+        self.date_obj = self.date_obj.replace(hour=hour, minute=minute)
+
     def to_date(self):
         return self.date_obj
 
-    def from_short_french(self, string):
+    def get_weekday(self, fmt='short'):
+        rtn = None
+        if fmt not in ('short', 'long', 'int'):
+            fmt = 'short'
+        if fmt == 'short':
+            rtn = datetime.strftime(self.date_obj, '%a')
+        elif fmt == 'long':
+            rtn = datetime.strftime(self.date_obj, '%A')
+        elif fmt == 'int':
+            rtn = int(datetime.strftime(self.date_obj, '%w'))
+            if rtn == 0:
+                rtn = 7
+        return rtn
+
+    def get_year(self):
+        return self.date_obj.year
+
+    def get_hour(self):
+        return self.date_obj.hour
+
+    def from_short_french_date(self, string):
         if not self.short_french_re.search(string):
             raise AttributeError
         return datetime.strptime(self.date_obj, '%d-%m-%Y')
 
-    def from_large_french(self, string):
-        #locale.setlocale(locale.LC_TIME, "French_France.1252")
+    def from_long_french_datetime(self, string):
+        # locale.setlocale(locale.LC_TIME, "French_France.1252")
         if not self.large_french_date_fmt_re.search(string):
             raise AttributeError
         self.date_obj = datetime.strptime(string, "%A %d %B %Y à %H:%M")
 
-    def from_large_iso(self, string):
+    def from_long_iso(self, string):
         if not self.large_iso_re.search(string):
             raise AttributeError
         self.date_obj = datetime.strptime(string, "%Y-%m-%d %H:%M:%S")
@@ -223,19 +278,137 @@ class DateHandler:
     def to_short_param(self):
         return datetime.strftime(self.date_obj, '%Y%m%d')
 
+    def to_format(self, fmt):
+        return datetime.strftime(self.date_obj, fmt)
+
+
+class FrequenceDict:
+    def __init__(self):
+        self.data = {}
+
+    def __getitem__(self, item):
+        if item in self.data:
+            return self.data[item]
+        else:
+            return None
+
+    def __len__(self):
+        return len(self.data)
+
+    def __str__(self):
+        return f"{self.data}"
+
+    def __contains__(self, item):
+        return item in self.data
+
+    def add(self, elem):
+        if elem in self.data:
+            self.data[elem] += 1
+        else:
+            self.data[elem] = 1
+        return True
+
+    def items(self):
+        return self.data.items()
+
+    def get(self, elem):
+        if elem in self.data:
+            return self.data[elem]
+        return None
+
+    def keys(self, sort=True):
+        if sort:
+            return tuple(sorted(self.data.keys()))
+        else:
+            return tuple(self.data.keys())
+
+    def keys_sorted_by_values(self):
+        self.sort()
+        return self.data.keys()
+
+    def key_index(self, elem):
+        self.sort()
+        return list(self.data.keys()).index(elem)
+
+    def remove(self, elem):
+        if elem in self.data:
+            if self.data[elem] == 1:
+                del self.data[elem]
+            else:
+                self.data[elem] -= 1
+            return True
+        return False
+
+    def reset(self, elem):
+        self.data[elem] = 0
+
+    def set(self, key, value: int):
+        if value:
+            self.data[key] = value
+            return True
+        return False
+
+    def size(self):
+        return self.__len__()
+
+    def sort(self):
+        self.data = self.sort_by_values()
+
+    def sort_by_values(self, descending=True):
+        items = sorted(self.data.items(), key=lambda x: x[1], reverse=descending)
+        return dict(items)
+
+    def unique_values(self):
+        return tuple(set(self.data.values()))
+
+    def values(self, sort=True):
+        if sort:
+            return tuple(sorted(self.data.values()))
+        else:
+            return tuple(self.data.values())
+    def max(self):
+        return max(self.data.values())
+
+    def min(self):
+        return min(self.data.values())
+
+
+def frequence(seq):
+    freq_dict = FrequenceDict()
+    for elem in seq:
+        freq_dict.add(elem)
+
+    frequences = {}
+    for key in freq_dict.keys(False):
+        appearances = freq_dict[key]
+        t = tuple([appearances[i] - appearances[i + 1] for i in range(len(appearances[:-1]))])
+        frequences[key] = {
+            'freq': t,
+            'max': max(t),
+            'min': min(t),
+            'avg': sum(t) // len(t),
+            'len': freq_dict[key],
+            'seq': seq
+        }
+
+    return frequences
+
+
 string_to_int: Callable[[Any], int] = lambda string: int(string.replace(',', ''))
 string_to_float: Callable[[Any], float] = lambda string: float(string.strip('m ').replace(',', ''))
 
 avg = lambda s: sum(s) / len(s)
 
+
 def clean_number(string):
-    if not string.rstrip('%s' % _currency).rstrip(' €£').replace(',', '').replace(' ','').isdigit():
+    if not string.rstrip('%s' % _currency).rstrip(' €£').replace(',', '').replace(' ', '').isdigit():
         return 0
-    string = string.rstrip(' €£').replace(' ','')
+    string = string.rstrip(' €£').replace(' ', '')
     if ',' in string:
         return locale.atof(string)
     else:
         return locale.atoi(string)
+
 
 def old_clean_number(string):
     if not string.strip('€').isdigit():
@@ -247,16 +420,52 @@ def old_clean_number(string):
         return int(string)
 
 
+def clean_url(string, keep='trailing'):
+    if not string:
+        return string
+    items = string.split('/')
+    if keep == 'trailing':
+        return items[-1]
+
+
 def data_a_objecte(data='viernes 1 de enero de 2010'):
     """Date string to Datetime object"""
     dt = datetime.strptime(re.search(r'^(\w+ \d{1,2} de \w+ de 20\d{2})$', data).group(1), "%A %d de %B de %Y")
     return dt
 
 
+def sort_dict_by_values(d, descending=True):
+    items = sorted(d.items(), key=lambda x: x[1], reverse=descending)
+    return dict(items)
 
-locale.setlocale(locale.LC_TIME, 'French_France.1252')
-locale.setlocale(locale.LC_MONETARY, 'Catalan_Andorra.UTF8')
-locale.setlocale(locale.LC_NUMERIC, 'Spanish_Spain.1252')
+
+class Internationalization:
+
+    locale_dict = {
+        'English': 'English_United Kingdom.1252',
+        'French': 'French_France.1252',
+        'Catalan': 'Catalan_Andorra.UTF8',
+        'Spanish': 'Spanish_Spain.1252'
+    }
+
+    def __init__(self):
+        self.default = self.locale_dict['French']
+
+    def set_local_time(self, key):
+        locale.setlocale(locale.LC_TIME, self.locale_dict[key])
+
+    def set_local_monetary(self, key):
+        locale.setlocale(locale.LC_MONETARY, self.locale_dict[key])
+
+    def set_local_numeric(self, key):
+        locale.setlocale(locale.LC_NUMERIC, self.locale_dict[key])
+
+    def init(self):
+        self.set_local_time('French')
+        self.set_local_numeric('Spanish')
+        self.set_local_monetary('Catalan')
+
 _currency = locale.localeconv()['currency_symbol']
 _display = Display()
-print ("")
+_locale = Internationalization()
+_locale.init()
