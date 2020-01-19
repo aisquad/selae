@@ -48,7 +48,7 @@ from core import BeautifulSoup, Browser, DateHandler, Display, FrequenceDict, cl
     Internationalization
 
 
-class EuroMillionsDotCom():
+class EuroMillionsDotCom:
     countries = ('UK', 'FR', 'ES', 'IE', 'PT', 'CH', 'BE', 'AT', 'LU')
 
     def __init__(self):
@@ -183,15 +183,6 @@ class EuromillionsDraw:
                 repeated.append(tuple(t))
         return repeated
 
-    def get_dozens_old(self, numbers=None):
-        """unused / deprecated"""
-        if not numbers:
-            numbers = self.balls
-        dozens = [0, 0, 0, 0, 0]
-        for n in numbers:
-            dozens[self.get_dozen(n)] += 1
-        return "".join([str(d) for d in dozens])
-
     def get_dozens(self, numbers=None):
         if not numbers:
             numbers = self.balls
@@ -221,10 +212,6 @@ class EuromillionsDraw:
         group += '4' * dozens.count("4") if dozens.count('4') > 0 else ''
         group += '5' * dozens.count("5") if dozens.count('5') > 0 else ''
         return f'{group:>05}'
-
-    def get_dozen(self, i):
-        """unused / deprecated"""
-        return i // 10 if i < 50 else 4
 
     def get_weight(self, numbers=None):
         if not numbers:
@@ -392,10 +379,18 @@ class EuromillionsHistoryPage(Page):
                 break
             else:
                 new_draws.append(clean_url(a.get('href')))
+        new_draws.reverse()
         return new_draws
 
 
 class Euromillions(EuroMillionsDotCom):
+    """
+        És la classe que llig de la web.
+
+        El mètode walk() llig del fitxer local.
+
+        Els mètodes que comencen amb check_data() carreguen el fitxer local.
+    """
     cat_re = re.compile(r'(\d(?: \+ \d)?)(?: étoiles?)?')
     bet_re = re.compile(r"Pour ce tirage, on a dénombré ([\d ]+) participations")
     jackpot_re = re.compile(
@@ -707,7 +702,36 @@ class Statistics(Euromillions):
                 break
         balls.sort()
         stars.sort()
-        return {'draws': tuple(draws), 'balls': balls, 'stars': stars}
+        return {
+            'draws': tuple(draws),
+            'balls': balls,
+            'stars': stars
+        }
+
+    def get_last_five_draws_stats(self, draw: EuromillionsDraw = None, skip_first=True) -> dict:
+        """
+        Retorna les boles i estreles dels darrers cinc sortejos a partir del sorteig indicat (draw).
+        Les boles del primer sorteig són les del primer sorteig següent al sorteig indicat.
+        :param draw: Pot ser qualsevol sorteig (objecte del tipus EuromillionsDraw), si no s'especifica serà el darrer.
+        :return: un diccionari amb dos claus: boles (balls) i estreles (stars).
+        """
+        if not draw:
+            draw = euromillions.get_last_draw()
+        seen_balls = set()
+        seen_stars = set()
+        start = 1 if skip_first else 0
+        end = 6 if skip_first else 5
+        for prev_draw in range(start, end):
+            if draw.id - prev_draw >= 1:
+                targeted_draw: EuromillionsDraw = euromillions.get_draw(draw.id - prev_draw)
+                seen_balls.update(targeted_draw.balls)
+                seen_stars.update(targeted_draw.stars)
+        seen_balls = tuple(sorted(list(seen_balls)))
+        seen_stars = tuple(sorted(list(seen_stars)))
+        return {
+            'balls': seen_balls,
+            'stars': seen_stars
+        }
 
     def last_seen(self, ball) -> int:
         for draw in self.walk(reverse=True):
@@ -818,6 +842,10 @@ class Statistics(Euromillions):
         display.print(len(last_5_draws['balls']), last_5_draws['balls'])
 
     def reduced_forecast(self):
+        """
+        Obtenció del prognòstic explorant sortejos que ja s'han repetit almenys una vegada i
+        que continguen almenys una bola repetida del sorteig anterior.
+        """
         ten_first_weights = self.get_ten_first_weights()
         all_repeated_draws = self.find_all_draw_matches(4)
         i = 0
@@ -866,6 +894,10 @@ class Statistics(Euromillions):
         return reduced
 
     def extended_forecast(self):
+        """
+        Obtenció del prognòstic explorant els diferents sortejos celebrats i buscant que alguna
+        bola del sorteig anterior es repetisca.
+        """
         last_draw = self.get_last_draw()
         ten_first_weights = self.get_ten_first_weights()
 
@@ -904,7 +936,60 @@ class Statistics(Euromillions):
             'weights': extended_weights
         }
 
+    def new_extended_forecast(self):
+        """
+        Obtenim el prognostic basat en que es repetiran boles dels cinc darrers sortejos anteriors a l'actual.
+        """
+        last_5_draws = self.get_last_five_draws_stats()
+        ten_first_weights = self.get_ten_first_weights()
+
+        # extended version
+        extended_potentials = []
+        extended_matches = FrequenceDict()
+        extended_weights = FrequenceDict()
+        for draw in self.walk():
+            weight = draw.get_weight()
+            if draw.get_weight() in ten_first_weights:
+                seen_balls = set()
+                if 0 < len(draw.get_consecutives_by_length()) < 3:
+                    if 0 < len(draw.get_repeated_tens()) < 3:
+                        if 0 < len(draw.get_repeated_unities()) < 3:
+                            for ball in draw.balls:
+                                extended_matches.add(ball)
+                                if ball in last_5_draws['balls']:
+                                    seen_balls.add(ball)
+                            if 0 < len(seen_balls) < 3:
+                                draw.seen_balls = seen_balls
+                                extended_potentials.append(draw)
+                                extended_weights.add(weight)
+        i = 1
+        for draw in extended_potentials:
+            print(
+                f"{i} #{draw.id} {draw.date.to_short_french_date()} {draw.sorted_balls()} {draw.seen_balls} {draw.get_weight()} {draw.get_sum()} "
+                f"{draw.get_consecutives()} {draw.get_repeated_unities()} {draw.get_repeated_tens()} "
+                f"{draw.get_dozens()}"
+            )
+            i += 1
+
+        self.show_last_5_draws()
+        return {
+            'potentials': extended_potentials,
+            'matches': extended_matches,
+            'weights': extended_weights
+        }
+
     def surmise(self, forecast):
+        """
+        forcast és un diccionari obtés d'un dels tres mètodes més amunt:
+            - reduced_forecast()
+            - extended_forecast()
+            - new_extended_forecast()
+        :param forecast: és un diccionari amb tres claus:
+            -potentials
+            -matches
+            -weights
+        :return:
+        """
         wrinkles = []
         last_draw = self.get_last_draw()
         last_5_draws_seen_balls = self.last_5_draws['balls'].keys()
@@ -1003,7 +1088,12 @@ class Statistics(Euromillions):
     def quick_forecast(self):
         reduced = self.reduced_forecast()
         extended = self.extended_forecast()
-        options = {'reduced': reduced, 'r': reduced, 'extended': extended, 'e': extended}
+        new_extended = self.new_extended_forecast()
+        options = {
+            'reduced': reduced, 'r': reduced,
+            'extended': extended, 'e': extended,
+            'n': new_extended, 'newextended': new_extended
+        }
         choice = options[args.forecast] if 'args' in globals() and args.forecast in options else reduced
         prognoses = self.surmise(choice)
 
@@ -1060,16 +1150,17 @@ class Statistics(Euromillions):
             'dozens': FrequenceDict(),
             'dozen groups': FrequenceDict(),
             'sum': FrequenceDict(),
-            'seen': FrequenceDict()
+            'seen': FrequenceDict(),
+            'l5seen': FrequenceDict()
         }
 
         # calculated statistic categories
         for draw in self.walk():
             categories['weight'].add(draw.get_weight())
             categories['dozens'].add(draw.get_dozens())
-            consec = len(draw.get_consecutives_by_length()) #'+'.join([str(x) for x in draw.get_consecutives_by_length()]) #sum(draw.get_consecutives_by_length())
-            repunities = len(draw.get_repeated_unities()) #'+'.join(str(len(ru)) for ru in draw.get_repeated_unities()) #sum([len(ru) for ru in draw.get_repeated_unities()])
-            reptens = len(draw.get_repeated_tens()) #'+'.join(str(len(ru)) for ru in draw.get_repeated_tens()) #sum([len(rt) for rt in draw.get_repeated_tens()])
+            consec = len(draw.get_consecutives_by_length())
+            repunities = len(draw.get_repeated_unities())
+            reptens = len(draw.get_repeated_tens())
             categories['consecutives'].add(consec)
             categories['repunities'].add(repunities)
             categories['reptens'].add(reptens)
@@ -1083,13 +1174,35 @@ class Statistics(Euromillions):
         for key in groups:
             categories['dozen groups'].set(key, groups[key])
 
-        #seen category
+        # seen category
         for draw in self.walk(True):
             cur_draw_balls = draw.balls
-            prev_draw_balls = euromillions.get_draw(draw.id+1).balls if draw.id+1 <= euromillions.length else []
+            prev_draw_balls = euromillions.get_draw(draw.id + 1).balls if draw.id + 1 <= euromillions.length else []
             seen_balls = [b for b in cur_draw_balls if b in prev_draw_balls]
             categories['seen'].add(len(seen_balls))
+
+        # last 5 seen category
+        fdict = {}  # frequence dict for debugging.
+        for draw in self.walk(True):
+            seen_balls = self.get_last_five_draws_stats(draw)['balls']
+            match = tuple(x for x in draw.balls if x in seen_balls)
+            categories['l5seen'].add(len(match))
+            if fdict.get(len(match)):
+                fdict[len(match)].append(draw.id)
+            else:
+                fdict[len(match)] = [draw.id]
+
+        # debug
         if display.debug_bool:
+            display.print(fdict.keys())
+            for i in range(0, 6):
+                f = fdict[i]
+                ff = [fdict[i][x] - fdict[i][x + 1] for x in range(len(f) - 1)]
+                ff.insert(0, euromillions.length - fdict[i][0])
+                display.print(i, len(fdict[i]), fdict[i], '\n\t', ff, '\n\t', sum(ff) // len(ff))
+            display.print(self.last_5_draws['balls'].keys())
+            display.print(self.get_last_five_draws_stats(skip_first=False)['balls'])
+            display.print(self.get_last_five_draws_stats(skip_first=True)['balls'])
             for cat in categories:
                 display.print(cat, categories[cat].sort_by_values())
         return categories
@@ -1176,7 +1289,6 @@ class Statistics(Euromillions):
         points += self.get_pair_points(draw)
         print("MARK:", mark, "POINTS:", points)
 
-
     def compare(self, targeted_draw, matches=3):
         display.title('compare')
         display.print(f'TARGETED DRAW: {targeted_draw.balls}')
@@ -1210,7 +1322,7 @@ class Statistics(Euromillions):
     def triplets(self) -> FrequenceDict:
         i = j = 0
         comb_dict = FrequenceDict()
-        for comb in combinations(range(1,51), 3):
+        for comb in combinations(range(1, 51), 3):
             i += 1
             for draw in self.walk():
                 if comb[0] in draw.balls and comb[1] in draw.balls and comb[2] in draw.balls:
@@ -1220,6 +1332,7 @@ class Statistics(Euromillions):
         display.debug(i, j, comb)
         display.debug(comb_dict.sort_by_values())
         return comb_dict
+
 
 class Combinatory:
     def __init__(self):
@@ -1262,6 +1375,7 @@ class Combinatory:
         rtn += '5' * dozen.count('5')
         return rtn
 
+
 def test():
     euromillions.load()
     draw = euromillions.data[-7]
@@ -1278,7 +1392,7 @@ def test2():
     draw.balls = (2, 3, 34, 12, 29)
     combinatory = Combinatory()
     for dozen in combinatory.get_dozens_keys():
-        print (f'{dozen} -> {draw.get_dozen_group(dozen)}')
+        print(f'{dozen} -> {draw.get_dozen_group(dozen)}')
 
 
 def fix():
@@ -1309,6 +1423,23 @@ def fix():
         stats.save()
 
 
+def fix_draw_order():
+    euromillions.data = euromillions.data[:-2]
+    euromillions.save()
+    euromillions.update()
+
+
+def fix_last_draw_of_year(year, walk=False):
+    # 2020-01-15
+    if walk:
+        for draw_ in euromillions.walk():
+            display.print(draw_)
+    # new_draws = euromillions.get_new_draws(year)
+    # targeted_draw = new_draws[-1]
+    # euromillions.get_draw_page(targeted_draw)
+    # euromillions.save()
+
+
 def mk_stats():
     """
         27/10/19
@@ -1333,18 +1464,21 @@ def mk_stats():
         seen 3 5 0.4
         seen 1+2+3 537 42.55
     """
+    display.title('mk_stat')
     percent: Callable[[int, int], Union[float, Any]] = lambda x, y: round((y * 100) / x, 2)
     golden_stats = stats.get_stats()
-    for category in ('consecutives', 'repunities', 'reptens', 'seen'):
-        accu = 0
+    print(f"\nall draws: {euromillions.length}\n")
+    for category in ('consecutives', 'repunities', 'reptens', 'seen', 'l5seen'):
+        accu = total = 0
         categories = []
         for key in golden_stats[category].keys():
             print(category, key, golden_stats[category][key], percent(euromillions.length, golden_stats[category][key]))
             if key > 0:
                 accu += golden_stats[category][key]
                 categories.append(key)
+            total += golden_stats[category][key]
         print(category, '+'.join(str(c) for c in categories), accu, percent(euromillions.length, accu))
-        print()
+        print('total', total, '\n')
 
 
 if __name__ == '__main__':
@@ -1370,7 +1504,7 @@ if __name__ == '__main__':
         '-e',
         dest='forecast',
         action='store',
-        choices=('e', 'extended', 'r', 'reduced'),
+        choices=('e', 'extended', 'n', 'newextended', 'r', 'reduced'),
         default='extended'
     )
     cmdline.add_argument('-F', dest='ballfreq', action=strue)
@@ -1395,6 +1529,7 @@ if __name__ == '__main__':
     cmdline.add_argument('-x', dest='x', action=strue)
 
     args = cmdline.parse_args()
+    # fix_draw_order()
     if args.debug:  # -D
         display.debug_bool = True
 
@@ -1414,8 +1549,8 @@ if __name__ == '__main__':
 
     if args.test:  # -T
         # test()
-        draw = stats.get_last_draw()
-        print(draw.sorted_balls(), draw.get_holes(), draw.get_sum(), draw.get_weight())
+        test_draw = stats.get_last_draw()
+        print(test_draw.sorted_balls(), test_draw.get_holes(), test_draw.get_sum(), test_draw.get_weight())
 
     if args.last5:  # -l
         display.empty_line()
@@ -1436,8 +1571,8 @@ if __name__ == '__main__':
         stats.show_raw_ball_frequence()
 
     if args.compare:  # -c
-        draw = stats.get_last_draw()
-        stats.compare(draw)
+        last_draw: EuromillionsDraw = stats.get_last_draw()
+        stats.compare(last_draw)
 
     if args.crosses:  # -C
         stats.crosses()
@@ -1462,16 +1597,16 @@ if __name__ == '__main__':
             friends.sort_by_values()
             max = list(friends.keys_sorted_by_values())[0]
             best_dict.setdefault((ball, max), friends.get(max))
-        print (best_dict)
+        print(best_dict)
 
     if args.guess:  # -G
-        draw = EuromillionsDraw()
-        draw.balls = (6, 45, 29, 12, 48)
-        draw.stars = (9, 7)
+        sim_draw = EuromillionsDraw()
+        sim_draw.balls = (6, 45, 29, 12, 48)
+        sim_draw.stars = (9, 7)
 
-        print(stats.ponderate(draw))
+        print(stats.ponderate(sim_draw))
 
-        print(draw.balls, draw.get_dozens(), draw.get_dozen_group())
+        print(sim_draw.balls, sim_draw.get_dozens(), sim_draw.get_dozen_group())
 
     if args.pairs:
         pairs = stats.pairs()
@@ -1485,10 +1620,17 @@ if __name__ == '__main__':
         triplets = stats.triplets()
         display.print(triplets.sort_by_values())
 
-    draw = EuromillionsDraw()
-    draw.balls = (23, 27, 34, 36, 48)
-    stats.ponderate(draw)
-    dozen = draw.get_dozens()
-    display.print(dozen, Combinatory().get_dozen_group(dozen))
-    # fix()
+    print(date_handler(today).to_format("%Y%m%d.txt"))
+
+    if 0:
+        test_draw = EuromillionsDraw()
+        test_draw.balls = (23, 27, 34, 36, 48)
+        stats.ponderate(test_draw)
+        dozen = test_draw.get_dozens()
+        display.print(dozen, Combinatory().get_dozen_group(dozen))
+    #fix_last_draw_of_year(2019)
     """run: -qnSCwrF"""
+
+    """
+    NOVA COMBINACIÓ PERMANENT: 9 10 14 32 40 - 3 7 [2019/11/26/dt]
+    """
