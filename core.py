@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-
+import json
 import locale
 import pymysql
 import re
 import requests
+import time
 
 from bs4 import BeautifulSoup
 from typing import Any, Callable
@@ -34,6 +35,9 @@ class Display:
             print(message, **kwargs)
         else:
             print(message)
+
+    def json_print(self, json_obj):
+        print(json.dumps(json_obj, indent=4))
 
     def empty_line(self):
         print()
@@ -187,6 +191,8 @@ class DateHandler:
                 date_obj = datetime.strptime(date_obj, "%A %d %B %Y  à %H:%M")
             elif self.large_iso_re.search(date_obj):
                 date_obj = datetime.strptime(date_obj, '%Y-%m-%d %H:%M:%S')
+        elif isinstance(date_obj, (int, float)):
+            date_obj = datetime.fromtimestamp(date_obj)
 
         #       date_obj must be a datetime object at this point.
         self.date_obj = date_obj
@@ -208,6 +214,9 @@ class DateHandler:
 
     def to_short_french_datetime_with_weekday(self):
         return datetime.strftime(self.date_obj, '%a %d-%m-%Y %H:%M')
+
+    def to_timestamp(self):
+        return datetime.timestamp(self.date_obj)
 
     def substract_days(self, days):
         return self.date_obj - timedelta(days=days)
@@ -256,6 +265,9 @@ class DateHandler:
     def get_year(self):
         return self.date_obj.year
 
+    def get_month(self):
+        return self.date_obj.month
+
     def get_hour(self):
         return self.date_obj.hour
 
@@ -281,6 +293,8 @@ class DateHandler:
     def to_format(self, fmt):
         return datetime.strftime(self.date_obj, fmt)
 
+    def __repr__(self):
+        return self.to_timestamp()
 
 class FrequenceDict:
     def __init__(self):
@@ -469,3 +483,21 @@ _currency = locale.localeconv()['currency_symbol']
 _display = Display()
 _locale = Internationalization()
 _locale.init()
+
+if __name__ == "__main__":
+    dates = {
+        "SMRi": 1410426000, "SMRf": 1474480800,
+        "DAMi": 1473757200, "DAMf": 1529431200,
+        "DAWi": 1536656400, "DAWf": 1561053600,
+        "4.80i": 1552035600, "4.80f": 1570557600
+    }
+    for k, v in dates.items():
+        print(k, DateHandler(v).to_format("%Y-%m-%d %H:%M:%S %Z"))
+
+    d = DateHandler("2010/05/01")
+    ts1 = d.to_timestamp()
+    print(DateHandler(ts1).to_format("%Y.%m.%d %H:%M:%S"))
+    ts2 = DateHandler("01-05-2010")
+    print(ts2.to_format("%Y.%m.%d %H:%M:%S"))
+    dh = DateHandler()
+    print("DH:", DateHandler(dh))
