@@ -6,6 +6,7 @@ import requests
 from selae.selae20 import Euromillions, EuromillionsDraw, EuroPrize
 from core import DateHandler
 
+
 class SelaeAPI:
     """
     19/09/19
@@ -36,18 +37,24 @@ class SelaeAPI:
         json_obj = getter.content
         return json.loads(json_obj)
 
-    def surf(self):
-        year = 2004
-        month = 6
-        day = 30
-        while year < 2020:
-            first_param = f"{year}{month-5:02}{1:02}"
+    def insert(self, items):
+        date = items[0]
+        balls = items[1]
+        stars = items[2]
+        if date_handler(self.data[-1][0]).to_date() < date_handler(date).to_date():
+            self.data.append((date, balls, stars))
+
+    def surf(self, year=2004, month=6, day=30):
+        while year < date_handler().get_year() + 1:
+            first_param = f"{year}{month - 5:02}{1:02}"
             second_param = f"{year}{month:02}{day:02}"
-            draws = selae.buscador('EMIL', first_param, second_param)
+            draws = self.buscador('EMIL', first_param, second_param)
 
             first_draw = draws[-1]
             last_draw = draws[0]
-
+            if isinstance(draws, str):
+                print("ERROR:", draws)
+                break
             draws.reverse()
 
             for draw in draws:
@@ -55,7 +62,7 @@ class SelaeAPI:
                 balls = [int(i) for i in re.findall('(\d+)', draw['combinacion'])]
                 stars = balls[-2:]
                 balls = balls[:-2]
-                self.data.append((date, balls, stars))
+                self.insert((date, balls, stars))
 
             if month == 6:
                 day = 31
@@ -71,10 +78,10 @@ class SelaeAPI:
     def walk(self):
         self.load()
         for draw in self.data:
-            yield  draw
+            yield draw
 
     def save(self):
-        if len(self.data)<1:
+        if len(self.data) < 1:
             raise MemoryError('No data to save')
         print("FILENAME:", self.data_filename)
         with open(self.data_filename, 'wb') as f:
@@ -88,18 +95,52 @@ class SelaeAPI:
             return True
         return False
 
-
     def estadistiques(self):
         url = 'https://www.loteriasyapuestas.es/va/euromillones/estadisticas'
 
+    def run(self):
+        euromillions = Euromillions()
+        eurodraws = [draw for draw in euromillions.walk()]
+        i = 0
+        for draw in self.walk():
+            print(draw, eurodraws[i].balls,
+                  tuple(sorted(draw[1])) == eurodraws[i].sorted_balls() and 'true' or '---- FALSE ----')
+            i += 1
+
+
+class CompareData:
+    def __init__(self):
+        self.local_data = SelaeAPI()
+        self.local_data.load()
+
+    def get_last_draw(self):
+        return self.local_data.data[-1]
+
+    def get_last_draw_date(self):
+        return self.get_last_draw()[0]
+
+    def get_delay(self):
+        self.diff = date_handler().to_date() - date_handler(self.get_last_draw_date()).to_date()
+
+    def set_month(self):
+        date = date_handler(self.get_last_draw_date())
+        return 6 if date.get_month() > 6 else 12
+
+    def dispatch(self):
+        if self.diff.days > 4:
+            month = self.set_month()
+            print (month)
+            date = date_handler(self.get_last_draw_date())
+            selae.surf(date.get_year(), month)
+            selae.save()
+
+
 if __name__ == '__main__':
     date_handler = DateHandler
-    selae = SelaeAPI()
-    euromillions = Euromillions()
-    eurodraws = [draw for draw in euromillions.walk()]
-    i = 0
-    for draw in selae.walk():
-        print(draw, eurodraws[i].balls, draw[1] == eurodraws[i].sorted_balls() and 'true' or '---- FALSE ----')
-        i += 1
 
+    selae = SelaeAPI()
+    compare = CompareData()
+    compare.get_delay()
+    selae.run()
+    compare.dispatch()
 
