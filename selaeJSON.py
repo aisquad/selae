@@ -140,7 +140,6 @@ if __name__ == '__main__':
 
     selae = SelaeAPI()
     compare = CompareData()
-    compare.get_delay()
-    selae.run()
     compare.dispatch()
+    selae.run()
 
