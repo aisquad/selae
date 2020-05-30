@@ -35,16 +35,15 @@ sortejos inclourà:
 - premi oferit
 - recaptació
 """
-
 import pickle
 import re
 
 from argparse import ArgumentParser
 from datetime import datetime
 from itertools import combinations, product
-from typing import Any, Callable, Union
+from typing import Any, Callable, Union, Tuple, List
 
-from core import BeautifulSoup, Browser, DateHandler, Display, FrequenceDict, clean_number, clean_url, \
+from core import BeautifulSoup, Browser, DateHandler, Display, FrequenceDict, clean_number, clean_url, digital_root, \
     Internationalization
 
 
@@ -413,18 +412,18 @@ class Euromillions(EuroMillionsDotCom):
         if reverse:
             copy.reverse()
 
-        for draw in copy:
-            yield draw
+        for wdraw in copy:
+            yield wdraw
 
-    def get_last_draw(self) -> list:
+    def get_last_draw(self) -> EuromillionsDraw:
         self.check_data()
         return self.data[-1]
 
     def get_draw(self, draw_id):
         self.check_data()
-        for draw in self.walk(True):
-            if draw.id == draw_id:
-                return draw
+        for wdraw in self.walk(True):
+            if wdraw.id == draw_id:
+                return wdraw
         raise ValueError(f'DRAWID NOT FOUND: {draw_id}')
 
     def skip(self, draws):
@@ -539,13 +538,12 @@ class Euromillions(EuroMillionsDotCom):
     def set_jackpot(self, string):
         self.current_draw.jackpot = clean_number(string)
 
-    def set_id_and_hour(self, tuple):
-        self.current_draw.id = clean_number(tuple[0])
-        self.set_date(tuple[1])
+    def set_id_and_hour(self, tuple_):
+        self.current_draw.id = clean_number(tuple_[0])
+        self.set_date(tuple_[1])
 
     def set_date(self, date):
-        date = date_handler(date)
-        self.current_draw.date = date
+        self.current_draw.date = date_handler(date)
 
     def read_table(self, table, country='es'):
         self.current_draw.prizes[country] = []
@@ -573,8 +571,8 @@ class Euromillions(EuroMillionsDotCom):
     # WRITING DATA
     def update(self):
         if self.is_loaded:
-            ldraw: EuromillionsDraw = self.get_last_draw()
-            display.print("Last draw date:", ldraw.date.to_date())
+            draw: EuromillionsDraw = self.get_last_draw()
+            display.print("Last draw date:", draw.date.to_date())
             now = self.init_time
             if args.force and now.strftime("%a") in ('mar.', 'ven.'):
                 display.print(now.hour, now.minute)
@@ -681,7 +679,6 @@ class Statistics(Euromillions):
 
     def get_stats_from_draws(self, times) -> dict:
         self.check_data()
-        i = 1
         draws = []
         balls = FrequenceDict()
         stars = FrequenceDict()
@@ -713,6 +710,7 @@ class Statistics(Euromillions):
         Retorna les boles i estreles dels darrers cinc sortejos a partir del sorteig indicat (draw).
         Les boles del primer sorteig són les del primer sorteig següent al sorteig indicat.
         :param draw: Pot ser qualsevol sorteig (objecte del tipus EuromillionsDraw), si no s'especifica serà el darrer.
+        :param skip_first: esquiva el primer sorteig, amb True el primer sorteig és el avant-darrer.
         :return: un diccionari amb dos claus: boles (balls) i estreles (stars).
         """
         if not draw:
@@ -733,6 +731,35 @@ class Statistics(Euromillions):
             'stars': seen_stars
         }
 
+
+    def get_sorted_last_five_draws_stats(self, draw: EuromillionsDraw = None, skip_first=True) -> dict:
+        """
+        Retorna les boles i estreles dels darrers cinc sortejos a partir del sorteig indicat (draw).
+        Les boles del primer sorteig són les del primer sorteig següent al sorteig indicat.
+        :param draw: Pot ser qualsevol sorteig (objecte del tipus EuromillionsDraw), si no s'especifica serà el darrer.
+        :param skip_first: esquiva el primer sorteig, amb True el primer sorteig és el avant-darrer.
+        :return: un diccionari amb dos claus: boles (balls) i estreles (stars).
+        """
+        if not draw:
+            draw = euromillions.get_last_draw()
+        seen_balls = []
+        seen_stars = []
+        start = 1 if skip_first else 0
+        end = 6 if skip_first else 5
+        for prev_draw in range(start, end):
+            if draw.id - prev_draw >= 1:
+                targeted_draw: EuromillionsDraw = euromillions.get_draw(draw.id - prev_draw)
+                for ball in targeted_draw.balls:
+                    if ball not in seen_balls:
+                        seen_balls.append(ball)
+                for star in targeted_draw.stars:
+                    if star not in seen_stars:
+                        seen_stars.append(star)
+        return {
+            'balls': tuple(seen_balls),
+            'stars': tuple(seen_stars)
+        }
+
     def last_seen(self, ball) -> int:
         for draw in self.walk(reverse=True):
             if ball in draw.balls:
@@ -745,24 +772,24 @@ class Statistics(Euromillions):
                 draws.append(draw)
         return tuple(draws)
 
-    def generate_ball_frequences(self) -> dict:
+    def generate_ball_frequencies(self) -> dict:
         ldraw_id = self.get_last_draw().id
         display.empty_line()
         for ball in range(1, 51):
             appearances = [draw.id for draw in self.seen_in_draws(ball)]
-            frequence = [appearances[i] - appearances[i + 1] for i in range(len(appearances[:-1]))]
-            length = len(frequence)
-            avg = sum(frequence) // length
+            frequency = [appearances[i] - appearances[i + 1] for i in range(len(appearances[:-1]))]
+            length = len(frequency)
+            avg = sum(frequency) // length
             last_seen = ldraw_id - appearances[0]
-            max_freq = max(frequence)
-            last_10_freq = frequence[:-(len(frequence) - 10)]
+            max_freq = max(frequency)
+            last_10_freq = frequency[:-(len(frequency) - 10)]
             yield {
                 'ball': ball, 'size': len(appearances), 'lastseen': last_seen,
                 'maxfreq': max_freq, 'avg': avg, 'last10freq': last_10_freq,
                 'appearances': appearances
             }
 
-    def get_dozens_frequences(self) -> FrequenceDict:
+    def get_dozens_frequencies(self) -> FrequenceDict:
         dozens = FrequenceDict()
         for draw in self.walk(True):
             dozens.add(draw.get_dozens())
@@ -776,7 +803,7 @@ class Statistics(Euromillions):
                 dozens_dict[dozens].append(draw.id)
             else:
                 dozens_dict[dozens] = [draw.id]
-        dozens = self.get_dozens_frequences()
+        dozens = self.get_dozens_frequencies()
         last_draw_id = self.get_last_draw().id
         ready = []
         preready = []
@@ -798,24 +825,28 @@ class Statistics(Euromillions):
                 print(key, len(appearances), seen, frequences, appearances)
         print(f"PREREADY: {preready}\nREADY: {ready}\nPOSTREADY: {postready}")
 
-    def show_dozens_frequences(self):
-        dozens = self.get_dozens_frequences()
+    def show_dozens_frequencies(self):
+        dozens = self.get_dozens_frequencies()
         for dozen in dozens.keys_sorted_by_values():
             display.print(dozen, dozens[dozen])
 
     # SHOWING STATS
-    def find_all_draw_matches(self, matches=4):
+    def find_all_draw_matches(self, matches=4) -> List[EuromillionsDraw]:
         self.check_data()
         i = 0
         stack = []
         draw_dict1 = FrequenceDict()
         draw_dict2 = FrequenceDict()
         for draw in self.data:
+            display.verbose(
+                f"{draw.id} {draw.date.to_slashed_french_date()} {draw.sorted_balls()} {draw.sorted_stars()}", level=5
+            )
             draws = self.find_draw(draw, matches)
             draw_dict1.set(draw.id, len(draws))
             if len(draws) > 0:
                 display.debug(
-                    f'DRAW #{draw.id} {draw.date.to_short_french_date()} {draw.balls} has got the following matches:')
+                    f'DRAW #{draw.id} {draw.date.to_short_french_date()} {draw.balls} has got the following matches:'
+                )
                 for dr in draws:
                     display.debug(f'\t#{dr.id}', dr.date.to_short_french_date(), dr.balls, dr.matches)
                     stack.append(dr)
@@ -923,7 +954,8 @@ class Statistics(Euromillions):
         i = 1
         for draw in extended_potentials:
             print(
-                f"{i} #{draw.id} {draw.date.to_short_french_date()} {draw.sorted_balls()} {draw.seen_balls} {draw.get_weight()} {draw.get_sum()} "
+                f"{i} #{draw.id} {draw.date.to_short_french_date()} {draw.sorted_balls()} {draw.seen_balls} "
+                f"{draw.get_weight()} {draw.get_sum()} "
                 f"{draw.get_consecutives()} {draw.get_repeated_unities()} {draw.get_repeated_tens()} "
                 f"{draw.get_dozens()}"
             )
@@ -965,7 +997,8 @@ class Statistics(Euromillions):
         i = 1
         for draw in extended_potentials:
             print(
-                f"{i} #{draw.id} {draw.date.to_short_french_date()} {draw.sorted_balls()} {draw.seen_balls} {draw.get_weight()} {draw.get_sum()} "
+                f"{i} #{draw.id} {draw.date.to_short_french_date()} {draw.sorted_balls()} {draw.seen_balls} "
+                f"{draw.get_weight()} {draw.get_sum()} "
                 f"{draw.get_consecutives()} {draw.get_repeated_unities()} {draw.get_repeated_tens()} "
                 f"{draw.get_dozens()}"
             )
@@ -980,7 +1013,7 @@ class Statistics(Euromillions):
 
     def surmise(self, forecast):
         """
-        forcast és un diccionari obtés d'un dels tres mètodes més amunt:
+        forecast és un diccionari obtés d'un dels tres mètodes més amunt:
             - reduced_forecast()
             - extended_forecast()
             - new_extended_forecast()
@@ -1194,31 +1227,38 @@ class Statistics(Euromillions):
 
         # debug
         if display.debug_bool:
+            display.print('frequency lastseen debugging')
             display.print(fdict.keys())
             for i in range(0, 6):
                 f = fdict[i]
                 ff = [fdict[i][x] - fdict[i][x + 1] for x in range(len(f) - 1)]
                 ff.insert(0, euromillions.length - fdict[i][0])
                 display.print(i, len(fdict[i]), fdict[i], '\n\t', ff, '\n\t', sum(ff) // len(ff))
-            display.print(self.last_5_draws['balls'].keys())
-            display.print(self.get_last_five_draws_stats(skip_first=False)['balls'])
-            display.print(self.get_last_five_draws_stats(skip_first=True)['balls'])
+            display.empty_line()
+            display.print('last seen balls')
+            display.print('#1a', self.last_5_draws['balls'].keys())
+            display.print('#2a', self.get_last_five_draws_stats(skip_first=False)['balls'])
+            display.print('#2b', self.get_last_five_draws_stats(skip_first=True)['balls'])
+            display.empty_line()
             for cat in categories:
                 display.print(cat, categories[cat].sort_by_values())
         return categories
 
     def show_balls_by_years_table(self):
         balls, stars = self.get_balls_by_years()
-        display.print("   " + " ".join(str(y) for y in range(2019, 2003, -1)))
+        display.print("   " + " ".join(str(y) for y in range(today.year, 2003, -1)))
         for ball in balls:
-            display.print(f"{ball:>02}", " ".join(f"{balls[ball].get(y):>4}" for y in reversed(balls[ball].keys(True))),
-                          f"{sum(balls[ball].values()):>4}")
+            display.print(
+                f"{ball:>02}",
+                " ".join(f"{balls[ball].get(y):>4}" for y in reversed(balls[ball].keys(True))),
+                f"{sum(balls[ball].values()):>4}"
+            )
         for star in stars:
             display.print(f"{star:>02}", " ".join(f"{stars[star].get(y):>4}" for y in reversed(stars[star].keys(True))))
 
-    def show_ball_frequences(self):
-        display.title('ball frequences')
-        for gen in self.generate_ball_frequences():
+    def show_ball_frequencies(self):
+        display.title('ball frequencies')
+        for gen in self.generate_ball_frequencies():
             display.print(
                 f"{gen['ball']:>2} seen: {gen['size']:>4}, last seen: {gen['lastseen']:>2}, "
                 f"max freq: {gen['maxfreq']:>2}, freq avg: {gen['avg']:>2}, last 10 freq: "
@@ -1256,7 +1296,7 @@ class Statistics(Euromillions):
         display.title('ball freq')
         balls, stars = self.get_balls_by_years()
         tab = '\t'
-        for g in self.generate_ball_frequences():
+        for g in self.generate_ball_frequencies():
             ball = balls[g['ball']]
             remains = g['avg'] - g['lastseen']
             display.print(
@@ -1267,15 +1307,15 @@ class Statistics(Euromillions):
             )
 
     def get_pair_points(self, draw: EuromillionsDraw):
-        pairs = stats.pairs()
+        pairs = stats.sets()
         selected = ((0, 0), 0)
         for pair in combinations(draw.balls, 2):
-            points = pairs.get(pair)
+            points = pairs.get(pair) or 0
             if points > selected[1]:
                 selected = (pair, points)
-        return selected[1] / pairs.max()
+        return selected[1] / pairs['dict'].max()
 
-    def ponderate(self, draw):
+    def ponderate(self, draw: EuromillionsDraw):
         mark = 0
         statistics = self.get_stats()
         display.debug("KEYS", statistics.keys())
@@ -1289,7 +1329,7 @@ class Statistics(Euromillions):
         points += self.get_pair_points(draw)
         print("MARK:", mark, "POINTS:", points)
 
-    def compare(self, targeted_draw, matches=3):
+    def compare(self, targeted_draw: EuromillionsDraw, matches: int = 3):
         display.title('compare')
         display.print(f'TARGETED DRAW: {targeted_draw.balls}')
         i = 0
@@ -1304,34 +1344,102 @@ class Statistics(Euromillions):
                 i += 1
                 print(f"\t{i} {draw.date.to_short_french_date()} {draw.sorted_balls()} {len(seen)} {seen}")
 
-    def pairs(self) -> FrequenceDict:
+    def sets(self, target: str = 'balls', matches=2) -> dict:
+        if target not in ('balls', 'stars'):
+            target = 'balls'
+        if matches not in (2, 3):
+            matches = 2
+        if matches == 3:
+            target = 'balls'
+        range_ = range(1, 51) if target == 'balls' else range(1, 13)
         i = j = 0
         comb_dict: FrequenceDict = FrequenceDict()
-        for comb in combinations(range(1, 51), 2):
+        for comb in combinations(range_, matches):
             i += 1
             for draw in self.walk():
-                if comb[0] in draw.balls and comb[1] in draw.balls:
+                tuple_ = getattr(draw, target)
+                conditions = [(it in tuple_) for it in comb]
+                if all(conditions):
                     j += 1
                     comb_dict.add(comb)
                     display.debug(f"{j:>5}", draw.date.to_short_french_date(), draw.balls, comb)
                     # comb_dict.update({comb: comb_dict.get(comb, 0) + 1})
         display.debug(i, j, comb)
         display.debug(comb_dict.sort_by_values())
-        return comb_dict
+        return {
+            "dict": comb_dict,
+            "json": dict(
+                [(", ".join([str(k) for k in key]), value) for key, value in comb_dict.sort_by_values().items()])
+        }
 
-    def triplets(self) -> FrequenceDict:
-        i = j = 0
-        comb_dict = FrequenceDict()
-        for comb in combinations(range(1, 51), 3):
-            i += 1
-            for draw in self.walk():
-                if comb[0] in draw.balls and comb[1] in draw.balls and comb[2] in draw.balls:
-                    j += 1
-                    display.debug(f"{j:>5}", draw.date.to_short_french_date(), draw.balls, comb)
-                    comb_dict.add(comb)
-        display.debug(i, j, comb)
-        display.debug(comb_dict.sort_by_values())
-        return comb_dict
+    def pairs(self, target: str = 'balls') -> dict:
+        return self.sets(target, 2)
+
+    def triplets(self, target: str = 'balls') -> dict:
+        return self.sets(target, 3)
+
+    def get_greater_tuple(self, target_int: int, freq_dict: FrequenceDict) -> dict:
+        max_ = 0
+        greater_tuple = tuple()
+        for item in freq_dict.keys():
+            if target_int in item:
+                if freq_dict[item] > max_:
+                    greater_tuple = item
+                    max_ = freq_dict[item]
+        return {"max": max_, "greater_tuple": greater_tuple}
+
+    def get_previous_draws(self, draw_id: int, draws: int = 5) -> List[EuromillionsDraw]:
+        idx = draw_id - 1
+        return self.data[idx - draws:idx]
+
+    def get_previous_draw_balls(self, draw_id: int) -> tuple:
+        prev_draw = self.get_previous_draws(draw_id, 2)
+        return prev_draw[0].balls if prev_draw else tuple()
+
+    def get_unique_balls(self, draws: List[EuromillionsDraw]) -> Tuple[int]:
+        unique_balls = []
+        for draw in draws:
+            for ball in draw.balls:
+                if ball not in unique_balls:
+                    unique_balls.append(ball)
+        return tuple(unique_balls)
+
+    def get_previous_draws_stats(self, draws: List[EuromillionsDraw]) -> List[int]:
+        last_draw_fdict = FrequenceDict()
+        prev_draws_fdict = FrequenceDict()
+        for draw in draws:
+            previous_draws = self.get_previous_draws(draw.id)
+            prev_balls = self.get_unique_balls(previous_draws)
+            last_draw_balls = self.get_previous_draw_balls(draw.id)
+            hits_1 = hits_2 = 0
+            for ball in draw.balls:
+                if ball in last_draw_balls:
+                    hits_1 += 1
+                    last_draw_fdict.add(ball)
+                if ball in prev_balls:
+                    hits_2 += 1
+                    prev_draws_fdict.add(ball)
+            print(draw.id, draw.balls, len(prev_balls), hits_1, hits_2, prev_balls, last_draw_balls)
+        print(f"last draw: {last_draw_fdict.sort_by_values()}")
+        print(f"previous draws: {prev_draws_fdict.sort_by_values()}")
+        return prev_balls
+
+    def last_prognose(self):
+        rep_draws: List[EuromillionsDraw] = self.find_all_draw_matches()
+        prev_balls = self.get_previous_draws_stats(rep_draws)
+        last_draw = self.get_last_draw()
+        print(last_draw.date.to_short_french_date(), last_draw.id, last_draw.balls, len(prev_balls), prev_balls)
+
+        master_ball = prev_balls[-1]
+        friends = self.get_friends(master_ball).sort_by_values()
+        print(f"friends for {master_ball}: {friends}")
+        target = list(friends.keys())[0]
+        triplets = self.triplets()
+        pairs = self.pairs()
+        greater_tuple = self.get_greater_tuple(target, triplets['dict'])
+        print(f'\t{greater_tuple["max"]} {greater_tuple["greater_tuple"]}.')
+        greater_tuple = self.get_greater_tuple(target, pairs['dict'])
+        print(f'\t{greater_tuple["max"]} {greater_tuple["greater_tuple"]}.')
 
 
 class Combinatory:
@@ -1375,6 +1483,257 @@ class Combinatory:
         rtn += '5' * dozen.count('5')
         return rtn
 
+    def get_product(self, weight):
+        for p in product(range(1,47), repeat=4):
+            if sum(p) == weight:
+                yield p
+
+
+class Prognose:
+    def __init__(self):
+        self.stats = stats
+        self.data = stats.data
+        self.balls = []
+        self.stars = []
+        self.years = {}
+        self.seen_indexes = set()
+        self.lucky_index = None
+        self.lucky_star = None
+        self.lucky_weight = None
+
+    def prepare(self):
+        """
+        Add annual_id to EuromillionsDraw.
+        """
+        years = []
+        year = self.data[0].date.get_year()
+        annual_id = 1
+        for pdraw in self.data:
+            if year != pdraw.date.get_year():
+                years.append((year, annual_id))
+                annual_id = 1
+                year = pdraw.date.get_year()
+            pdraw.annual_id = annual_id
+            annual_id +=1
+        years.append((year, annual_id-1))
+        self.years = dict(years)
+        last_draw: EuromillionsDraw = self.stats.get_last_draw()
+        annual_id = last_draw.annual_id
+        limit = 63
+        divisor = annual_id if annual_id <= limit else annual_id % limit
+        if divisor < 1:
+            divisor = 1
+        self.lucky_index = (last_draw.id // divisor) % 10
+
+    def walk(self):
+        for pdraw in self.data:
+            print(pdraw.id, pdraw.annual_id, pdraw.date.to_slashed_french_date(), pdraw.balls, pdraw.stars)
+
+    def _get_last_draw(self):
+        last_draw: EuromillionsDraw = self.data[-1]
+        return last_draw
+
+    def _get_lucky_weights(self):
+        occ: FrequenceDict = self.stats.get_weight_occurrences()
+        occ_list = list(occ.keys_sorted_by_values())
+        return occ_list
+
+    def get_lucky_weight(self):
+        lucky_weights = self._get_lucky_weights()
+        return lucky_weights[self.lucky_index]
+
+    def get_balls(self, target='first'):
+        last_five_draws_stats = self.stats.get_sorted_last_five_draws_stats(skip_first=False)
+        balls = last_five_draws_stats['balls']
+        mean = sum(balls) // len(balls)
+        if target == 'last':
+            balls = [ball for ball in balls if ball >= mean][:10]
+        else:
+            balls = [ball for ball in balls if ball <= mean][:10]
+        star_index = self.lucky_index if \
+            self.lucky_index < len(last_five_draws_stats['stars']) else \
+            self.lucky_index - len(last_five_draws_stats['stars'])
+        self.lucky_star = last_five_draws_stats['stars'][star_index]
+        return balls
+
+    def get_lucky_first_ball_and_star(self):
+        balls = self.get_balls('first')
+        lucky_first_ball = balls[self.lucky_index]
+        if lucky_first_ball + self.lucky_weight > 50:
+            balls.sort(reverse=True)
+            for ball in balls:
+                if ball + self.lucky_weight <= 50:
+                    lucky_first_ball = ball
+                    break
+        return lucky_first_ball
+
+    def get_lucky_last_ball_and_star(self):
+        balls = self.get_balls('last')
+        lucky_last_ball = balls[self.lucky_index]
+        balls.sort()
+        if lucky_last_ball < self.lucky_weight:
+            for ball in balls:
+                if ball > self.lucky_weight:
+                    lucky_last_ball = ball
+                    break
+        ball = lucky_last_ball
+        while lucky_last_ball < self.lucky_weight:
+            if ball > self.lucky_weight:
+                lucky_last_ball = ball
+                break
+            ball += 1
+        return lucky_last_ball
+
+    def get_lucky_index(self):
+        method = len(self.seen_indexes) + 1
+        last_draw = self.stats.get_last_draw()
+        lucky_index = {
+            1: digital_root(sum(last_draw.balls)),
+            2: sum(last_draw.balls + last_draw.stars) % 10,
+            3: (last_draw.id + last_draw.annual_id) % 10,
+        }.get(method)
+        if lucky_index in self.seen_indexes:
+            while lucky_index in self.seen_indexes:
+                lucky_index += 1
+                if lucky_index > 9:
+                    lucky_index = 0
+        self.seen_indexes.add(lucky_index)
+        self.lucky_index = lucky_index
+
+    def one_step_method(self):
+        """
+        L'índex que s'utilitza és la xifra que s'obté de sumar totes les boles del sorteig anterior fins
+        treure una sola xifra (de l'1 al 9).
+
+        S'extrau el pes dels deu primers pesos.
+
+        S'extrau la bola més alta.
+
+        S'extrau els forats. Les boles correspondràn als forats i ja tenim les 5 boles.
+        """
+        ten_first_weights = stats.get_ten_first_weights()
+        printed = 0
+        self.get_lucky_index()
+        self.lucky_weight = ten_first_weights[self.lucky_index]
+        print("ONE lucky index:", self.lucky_index)
+        holes = []
+        for c in Combinatory().get_product(self.lucky_weight):
+                holes.append(c)
+        acc = 0
+        for cur_draw in self.data:
+            cur_draw: EuromillionsDraw
+            cur_holes = cur_draw.get_holes()
+            if sum(cur_holes) == self.lucky_weight:
+                printed += 1
+                acc += sum(cur_draw.balls)
+                if cur_holes in holes:
+                    holes.remove(cur_holes)
+        last_ball = self.get_lucky_last_ball_and_star()
+        cur_holes = holes[acc % len(holes)]
+        balls = [last_ball]
+        ball = last_ball
+        for x in cur_holes:
+            ball -= x
+            balls.append(ball)
+        balls.sort()
+        lucky_stars: FrequenceDict = self.stats.pairs('stars')['dict']
+        for pair in lucky_stars.keys_sorted_by_values():
+            if self.lucky_star in pair:
+                break
+        return tuple(balls), pair
+
+    def candidates(self):
+        last_five_draws_stats = self.stats.get_sorted_last_five_draws_stats(skip_first=False)
+        star_index = self.lucky_index if \
+            self.lucky_index < len(last_five_draws_stats['stars']) else \
+            self.lucky_index - len(last_five_draws_stats['stars'])
+        self.lucky_star = last_five_draws_stats['stars'][star_index]
+        lucky_stars: FrequenceDict = self.stats.pairs('stars')['dict']
+        for pair in lucky_stars.keys_sorted_by_values():
+            if self.lucky_star in pair:
+                break
+
+        i = 0
+        for balls in combinations(range(1, 51), 5):
+            draw: EuromillionsDraw = EuromillionsDraw()
+            draw.balls = balls
+            if draw.get_weight() == self.lucky_weight:
+                if '4' not in draw.get_dozen_group():
+                    if len(draw.get_consecutives_by_length()) == 1 and draw.get_consecutives_by_length()[0] < 4:
+                        if draw.get_repeated_tens() and draw.get_repeated_unities():
+                            i += 1
+                            yield draw.balls, pair
+
+    def two_steps_method(self):
+        ten_first_weights = stats.get_ten_first_weights()
+        self.get_lucky_index()
+        print("TWO lucky index:", self.lucky_index)
+        self.lucky_weight = ten_first_weights[self.lucky_index]
+        candidates = []
+        for candidate in self.candidates():
+            candidates.append(candidate)
+        ceil = self.lucky_weight ** self.lucky_index
+        pos = ceil % len(candidates)
+        return candidates[pos]
+
+    def three_steps_method(self):
+        """
+        Obtenim una aposta agafant el pes dins dels deu primers pesos per mig de la posició total partida per
+        la posició anual.
+
+        Busquem quina serà la primera i l'última bola, la primera bola ha de ser una bola extreta en els darrers
+        cinc sortejos i l'última és la primera més el pes seleccionat en el pas anterior.
+
+        El tercer pas és el de buscar el trio que més es repetix amb la primera o si faltara alguna bola, el
+        trio que més es repetix amb la última bola.
+        """
+        self.get_lucky_index()
+        print("THREE lucky index:", self.lucky_index)
+        self.lucky_weight = self.get_lucky_weight()
+        lucky_first_ball = self.get_lucky_first_ball_and_star()
+        lucky_last_ball = lucky_first_ball + self.lucky_weight
+        triplets: FrequenceDict = self.stats.triplets()['dict']
+        lucky_five_triplets_for_first_ball = []
+        lucky_five_triplets_for_last_ball = []
+
+        for triplet, value in triplets.sort_by_values().items():
+            if lucky_first_ball in triplet:
+                lucky_five_triplets_for_first_ball.append(triplet)
+            if lucky_last_ball in triplet:
+                lucky_five_triplets_for_last_ball.append(triplet)
+            if len(lucky_five_triplets_for_first_ball) == 5 and len(lucky_five_triplets_for_last_ball) == 5:
+                break
+        lucky_draw = [lucky_first_ball, lucky_last_ball]
+        for i in range(5):
+            for ball in lucky_five_triplets_for_first_ball[i]:
+                if ball > lucky_first_ball and ball not in lucky_draw:
+                    lucky_draw.append(ball)
+                if len(lucky_draw) == 5:
+                    break
+            for ball in lucky_five_triplets_for_last_ball[i]:
+                if ball > lucky_first_ball and ball not in lucky_draw:
+                    lucky_draw.append(ball)
+                if len(lucky_draw) == 5:
+                    break
+            if len(lucky_draw) == 5:
+                break
+        lucky_stars: FrequenceDict = self.stats.pairs('stars')['dict']
+        for pair in lucky_stars.keys_sorted_by_values():
+            if self.lucky_star in pair:
+                break
+        return tuple(sorted(lucky_draw)), pair
+
+    def run(self):
+        self.prepare()
+        one = self.one_step_method()
+        #two = self.two_steps_method()
+        #three = self.three_steps_method()
+
+        print(
+            f"ONE STEP METHOD: {one[0]} {one[1]}\n"
+        #   f"TWO STEP METHOD: {two[0]} {two[1]}\n"
+        #    f"THREE STEP METHOD: {three[0]} {three[1]}"
+        )
 
 def test():
     euromillions.load()
@@ -1495,10 +1854,12 @@ if __name__ == '__main__':
 
     cmdline = ArgumentParser()
     strue = 'store_true'
+    cmdline.add_argument('-A', dest='stars', type=int, nargs='*')
+    cmdline.add_argument('-B', dest='balls', type=int, nargs='*')
     cmdline.add_argument('-b', dest='target', action=strue)
+    cmdline.add_argument('-C', dest='crosses', action=strue)
     cmdline.add_argument('-c', dest='compare', action=strue)
     cmdline.add_argument('-D', dest='debug', action=strue)
-    cmdline.add_argument('-C', dest='crosses', action=strue)
     cmdline.add_argument('-d', dest='dozens', action=strue)
     cmdline.add_argument(
         '-e',
@@ -1511,12 +1872,15 @@ if __name__ == '__main__':
     cmdline.add_argument('-f', dest='force', action=strue)
     cmdline.add_argument('-G', dest='guess', action=strue)
     cmdline.add_argument('-g', dest='stats', action=strue)
+    cmdline.add_argument('-H', dest='holes_stats', action=strue)
+    cmdline.add_argument('-L', dest='limit', type=int, default=0)
     cmdline.add_argument('-l', dest='last5', action=strue)
     cmdline.add_argument('-m', dest='matches', type=int, default=4)
     cmdline.add_argument('-n', dest='nextdrawday', action=strue)
     cmdline.add_argument('-p', dest='pairs', action=strue)
     cmdline.add_argument('-P', dest='triplets', action=strue)
     cmdline.add_argument('-q', dest='quickforecast', action=strue)
+    cmdline.add_argument('-Q', dest='starpairs', action=strue)
     cmdline.add_argument('-S', dest='showstats', action=strue)
     cmdline.add_argument('-s', dest='skip', type=int)
     cmdline.add_argument('-R', dest='friends', action=strue)
@@ -1525,8 +1889,10 @@ if __name__ == '__main__':
     cmdline.add_argument('-t', dest='showtable', action=strue)
     cmdline.add_argument('-u', dest='update', action=strue)
     cmdline.add_argument('-V', dest='save', action=strue)
+    cmdline.add_argument('-W', dest='softwalk', action=strue)
     cmdline.add_argument('-w', dest='weight', action=strue)
     cmdline.add_argument('-x', dest='x', action=strue)
+    cmdline.add_argument('--progn', dest='prognose', action=strue)
 
     args = cmdline.parse_args()
     # fix_draw_order()
@@ -1571,14 +1937,20 @@ if __name__ == '__main__':
         stats.show_raw_ball_frequence()
 
     if args.compare:  # -c
-        last_draw: EuromillionsDraw = stats.get_last_draw()
-        stats.compare(last_draw)
+        g_last_draw: EuromillionsDraw = stats.get_last_draw()
+        stats.compare(g_last_draw)
 
     if args.crosses:  # -C
-        stats.crosses()
+        if args.limit:
+            stats.crosses(args.limit)
+        else:
+            stats.crosses()
 
     if args.weight:  # -w
-        stats.show_weight()
+        if args.limit:
+            stats.show_weight(args.limit)
+        else:
+            stats.show_weight()
 
     if args.dozens:  # -d
         stats.get_dozens_appearances()
@@ -1591,12 +1963,12 @@ if __name__ == '__main__':
 
     if args.friends:  # -R
         best_dict = {}
-        for ball in range(1, 51):
-            friends = stats.get_friends(ball)
-            print(ball, friends.sort_by_values())
-            friends.sort_by_values()
-            max = list(friends.keys_sorted_by_values())[0]
-            best_dict.setdefault((ball, max), friends.get(max))
+        for g_ball in range(1, 51):
+            g_friends = stats.get_friends(g_ball)
+            print(g_ball, g_friends.sort_by_values())
+            g_friends.sort_by_values()
+            max_ = list(g_friends.keys_sorted_by_values())[0]
+            best_dict.setdefault((g_ball, max_), g_friends.get(max_))
         print(best_dict)
 
     if args.guess:  # -G
@@ -1608,29 +1980,83 @@ if __name__ == '__main__':
 
         print(sim_draw.balls, sim_draw.get_dozens(), sim_draw.get_dozen_group())
 
-    if args.pairs:
-        pairs = stats.pairs()
-        display.print(pairs.sort_by_values())
-        pair = (26, 27)
-        if pair[1] < pair[0]:
-            pair = (pair[1], pair[0])
-        print(f"{pair[0]}|{pair[1]}:", pairs.get(pair))
+    if args.pairs:  # -p
+        g_pairs = stats.sets()
+        display.print(g_pairs)
+        display.json_print(g_pairs['json'])
+        g_pair = (4, 27)
+        if g_pair[1] < g_pair[0]:
+            g_pair = (g_pair[1], g_pair[0])
+        print(f"{g_pair[0]}|{g_pair[1]}:", g_pairs['dict'].get(g_pair))
 
-    if args.triplets:
-        triplets = stats.triplets()
-        display.print(triplets.sort_by_values())
+    if args.triplets:  # -P
+        g_triplets = stats.triplets()
+        display.json_print(g_triplets['json'])
 
-    print(date_handler(today).to_format("%Y%m%d.txt"))
+    if args.starpairs:  # -Q
+        g_star_pairs = stats.sets('stars')
+        display.json_print(g_star_pairs['json'])
 
-    if 0:
-        test_draw = EuromillionsDraw()
-        test_draw.balls = (23, 27, 34, 36, 48)
-        stats.ponderate(test_draw)
-        dozen = test_draw.get_dozens()
-        display.print(dozen, Combinatory().get_dozen_group(dozen))
-    #fix_last_draw_of_year(2019)
+    if args.softwalk:  # -W
+        g_limit = args.limit or 5
+        i = 0
+        for soft_draw in euromillions.walk(True):
+            soft_draw: EuromillionsDraw
+            print(
+                f"{soft_draw.date.to_short_french_date():12}"
+                f"{soft_draw.id:5}"
+                f"{str(soft_draw.balls):>21}"
+                f"{str(soft_draw.stars):>9}"
+            )
+            if i == g_limit:
+                break
+            i += 1
+
+    if args.balls and args.stars:
+        g_draw: EuromillionsDraw = EuromillionsDraw()
+        g_draw.balls = args.balls
+        g_draw.stars = args.stars
+        freq: FrequenceDict = FrequenceDict()
+        log = f'{" ":10} {tuple(sorted(args.balls))} {tuple(sorted(args.stars))}'
+        print(log)
+        i = 1
+        for cur_draw in euromillions.walk():
+            ball_matches = [b for b in args.balls if b in cur_draw.balls]
+            star_matches = [s for s in args.stars if s in cur_draw.stars]
+            if len(ball_matches) > 1 or len(ball_matches) == 1 and len(star_matches) == 2:
+                print(
+                    cur_draw.date.to_short_french_date(),
+                    cur_draw.sorted_balls(),
+                    cur_draw.sorted_stars(),
+                    len(ball_matches),
+                    len(star_matches)
+                )
+                freq.add(f'{len(ball_matches)} + {len(star_matches)}')
+                if i % 10 == 0:
+                    print(log)
+                i += 1
+        print(log)
+        for key in freq.sort_by_values():
+            print(f'{key}: {freq.get(key)} [{freq.get(key) * 100 / freq.sum():.3f}]')
+        print(freq.sum())
+
+    if args.prognose:
+        prognose = Prognose()
+        prognose.run()
+
+    if args.holes_stats:
+        p = Prognose()
+        p.one_step_method()
+
+    # stats.last_prognose()
+    # fix_last_draw_of_year(2019)
     """run: -qnSCwrF"""
 
     """
     NOVA COMBINACIÓ PERMANENT: 9 10 14 32 40 - 3 7 [2019/11/26/dt]
+    2020-01-20.dt: 41 29 1 48 11 però he fet 41 31 25 05 19
+    """
+
+    """
+    €uro1000
     """
